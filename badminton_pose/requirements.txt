@@ -1,0 +1,17 @@
+# 羽毛球运动姿态识别与动作分类系统 依赖包
+# Python >= 3.10, 已验证无Qt库冲突
+#
+# 安装: pip install -r requirements.txt
+# 注意: 使用 opencv-python-headless（不含Qt），避免与PyQt5冲突
+
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0,<3.0.0
+scipy>=1.10.0
+scikit-learn>=1.2.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+PyQt5>=5.15.0
+tqdm>=4.65.0
