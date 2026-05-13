@@ -97,9 +97,6 @@ class InferenceWorker(QThread):
         self.frame_buffer = deque(maxlen=config.SEQ_LENGTH)
         self.prediction_history = deque(maxlen=5)
         self.ball_court_history = deque(maxlen=10)
-        self.court_trajectories = []      # 完整轨迹 [np.ndarray(N,2), ...]
-        self._current_traj = []           # 当前轨迹段（只存真检测）
-        self._last_det_frame = -10        # 上次真检测的帧号
 
     def set_source(self, source, mode="video"):
         self.source = source
@@ -108,9 +105,6 @@ class InferenceWorker(QThread):
         self.prediction_history.clear()
         self.ball_court_history.clear()
         self.foot_pixel_positions.clear()
-        self.court_trajectories = []
-        self._current_traj = []
-        self._last_det_frame = -10
         self.court_detected = False
         self.manual_corners = None
         self.tracker = CentroidTracker()
@@ -223,15 +217,8 @@ class InferenceWorker(QThread):
                     color = (0, int(255 * (1 - alpha)), int(255 * alpha))
                     cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), color, 2)
 
-        # 球场轨迹：只在真检测时累积，帧号间隔>=10才切断
+        # 球场热力：真检测时累积，静态目标过滤
         if ball_det is not None and self.manual_corners is not None and ball_pos is not None:
-            # 帧号间隔过大 → 保存旧轨迹，开始新轨迹
-            if frame_count - self._last_det_frame >= 10 and self._current_traj:
-                if len(self._current_traj) >= 3:
-                    self.court_trajectories.append(np.array(self._current_traj))
-                self._current_traj = []
-            self._last_det_frame = frame_count
-
             try:
                 court_pos = self.court_mapper.pixel_to_court(ball_pos)
                 if court_pos is not None and len(court_pos) > 0:
@@ -245,10 +232,6 @@ class InferenceWorker(QThread):
                                 is_moving = False
                         if is_moving:
                             self.ball_heatmap.add_point(cp)
-                            self._current_traj.append(cp)
-                        elif self._current_traj and len(self._current_traj) >= 3:
-                            self.court_trajectories.append(np.array(self._current_traj))
-                            self._current_traj = []
                         self.ball_court_history.append(cp)
             except Exception:
                 pass
@@ -393,6 +376,14 @@ class BadmintonGUI(QMainWindow):
         self.calib_label = QLabel("")
         self.calib_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
         toolbar.addWidget(self.calib_label)
+        btn_flip_h = QPushButton("左右翻转")
+        btn_flip_h.setCheckable(True)
+        btn_flip_h.clicked.connect(self.toggle_mirror_x)
+        toolbar.addWidget(btn_flip_h)
+        btn_flip_v = QPushButton("上下翻转")
+        btn_flip_v.setCheckable(True)
+        btn_flip_v.clicked.connect(self.toggle_mirror_y)
+        toolbar.addWidget(btn_flip_v)
         btn_stop = QPushButton("停止")
         btn_stop.clicked.connect(self.stop_inference)
         toolbar.addWidget(btn_stop)
@@ -499,6 +490,18 @@ class BadmintonGUI(QMainWindow):
             self.btn_camera.setText("关闭摄像头")
             self._start_inference("0", "camera")
 
+    def toggle_mirror_x(self, checked):
+        """左右翻转"""
+        if self.worker:
+            self.worker.court_mapper.mirror_x = checked
+            self._log(f"球场左右翻转: {'开' if checked else '关'}")
+
+    def toggle_mirror_y(self, checked):
+        """上下翻转"""
+        if self.worker:
+            self.worker.court_mapper.mirror_y = checked
+            self._log(f"球场上下翻转: {'开' if checked else '关'}")
+
     def start_calibration(self):
         """开始手动标定模式"""
         self.calibrating = True
@@ -544,9 +547,6 @@ class BadmintonGUI(QMainWindow):
             self.worker.footwork_heatmap.reset()
             self.worker.ball_court_history.clear()
             self.worker.foot_pixel_positions.clear()
-            self.worker.court_trajectories = []
-            self.worker._current_traj = []
-            self.worker._last_det_frame = -10
         self._init_heatmap_displays()
         self._log("热力图已重置")
 
@@ -574,40 +574,10 @@ class BadmintonGUI(QMainWindow):
                 self.top5_label.setText(f"Top-5:\n{top5_text}")
 
     def _on_ball_heatmap(self, img):
-        # 叠加轨迹线
-        if self.worker and self.worker.court_trajectories:
-            img = self._draw_trajectories_on_court(img, self.worker.court_trajectories)
-        if self.worker and self.worker._current_traj and len(self.worker._current_traj) >= 2:
-            img = self._draw_trajectories_on_court(img, [np.array(self.worker._current_traj)])
         self._show_court(img, self.ball_heatmap_label)
 
     def _on_footwork_heatmap(self, img):
         self._show_court(img, self.footwork_label)
-
-    def _draw_trajectories_on_court(self, court_img, trajectories):
-        """在球场图上绘制多条球飞行轨迹线"""
-        img = court_img.copy()
-        iw, ih = img.shape[1], img.shape[0]
-        cw, ch = config.COURT_LENGTH_M, config.COURT_WIDTH_M
-
-        for traj in trajectories:
-            if len(traj) < 2:
-                continue
-            pts = []
-            for pt in traj:
-                px = int(pt[0] / cw * iw)
-                py = ih - 1 - int(pt[1] / ch * ih)
-                pts.append([px, py])
-            pts = np.array(pts, dtype=np.int32)
-
-            # 画折线
-            cv2.polylines(img, [pts], False, (0, 200, 255), 2, cv2.LINE_AA)
-
-            # 起点（黄）和落点（红）
-            cv2.circle(img, tuple(pts[0]), 4, (0, 255, 255), -1)
-            cv2.circle(img, tuple(pts[-1]), 5, (0, 0, 255), -1)
-
-        return img
 
     def _init_heatmap_displays(self):
         """初始化右侧球场底图"""

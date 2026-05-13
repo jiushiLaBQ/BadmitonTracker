@@ -27,6 +27,8 @@ class CourtMapper:
         """
         self.H = homography
         self.H_inv = None
+        self.mirror_x = False
+        self.mirror_y = False
         if homography is not None:
             self.H_inv = np.linalg.inv(homography)
 
@@ -49,8 +51,14 @@ class CourtMapper:
             raise ValueError("未设置透视变换矩阵，请先调用 set_homography()")
 
         pts = np.array(points, dtype=np.float32).reshape(-1, 1, 2)
-        court_pts = cv2.perspectiveTransform(pts, self.H)
-        return court_pts.reshape(-1, 2)
+        court_pts = cv2.perspectiveTransform(pts, self.H).reshape(-1, 2)
+
+        if self.mirror_x:
+            court_pts[:, 0] = config.COURT_LENGTH_M - court_pts[:, 0]
+        if self.mirror_y:
+            court_pts[:, 1] = config.COURT_WIDTH_M - court_pts[:, 1]
+
+        return court_pts
 
     def court_to_pixel(self, court_points):
         """
