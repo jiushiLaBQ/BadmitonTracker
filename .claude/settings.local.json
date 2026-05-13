@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(xargs -I{} file \"{}\")",
-      "Bash(python -c ' *)",
-      "Bash(pip install *)"
-    ]
-  }
-}
