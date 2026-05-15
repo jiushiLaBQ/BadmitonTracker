@@ -69,8 +69,29 @@ class Trainer:
         info = self.model.get_model_info()
         print(f"[Trainer] 模型参数量: {info['total_params']:,}")
 
-        # 损失函数 - CrossEntropy + 标签平滑（软化硬标签，缓解类别不平衡的过拟合）
-        self.criterion = nn.CrossEntropyLoss(label_smoothing=config.LABEL_SMOOTHING)
+        # --- 解决数据不平衡：计算类别权重 ---
+        print("[Trainer] 计算类别权重以解决数据不平衡...")
+        y_train = self.dataset['y_train']
+        class_counts = np.bincount(y_train, minlength=config.NUM_CLASSES)
+        
+        # 避免除以零
+        class_counts = np.where(class_counts == 0, 1, class_counts)
+        
+        # 权重与类别频率成反比
+        weights = 1. / class_counts
+        weights /= weights.sum()  # 归一化
+        weights *= config.NUM_CLASSES # 放大权重，使其均值约为1
+        
+        class_weights = torch.FloatTensor(weights).to(self.device)
+        
+        for i, name in enumerate(config.CLASS_NAMES):
+            print(f"  - {name:<25}: 样本数={class_counts[i]}, 权重={class_weights[i]:.2f}")
+        
+        # 损失函数 - CrossEntropy + 类别权重 + 标签平滑
+        self.criterion = nn.CrossEntropyLoss(
+            weight=class_weights,
+            label_smoothing=config.LABEL_SMOOTHING
+        )
 
         # 优化器
         self.optimizer = AdamW(

@@ -44,7 +44,7 @@ SKELETON_COLORS = [
 
 class InferenceWorker(QThread):
     """推理工作线程"""
-    frame_ready = pyqtSignal(np.ndarray, str, float, list)
+    frame_ready = pyqtSignal(np.ndarray, str, float, list, object)
     ball_heatmap_ready = pyqtSignal(np.ndarray)
     footwork_heatmap_ready = pyqtSignal(np.ndarray)
     status_update = pyqtSignal(str)
@@ -74,6 +74,11 @@ class InferenceWorker(QThread):
         self.model.eval()
         self.class_names = checkpoint['class_names']
 
+        # --- 规则引擎状态 ---
+        self.serves_allowed = True
+        self.serve_indices = [i for i, name in enumerate(self.class_names) if 'Serve' in name]
+        print(f"[Rule Engine] 已识别发球类别索引: {self.serve_indices}")
+
         # 推理组件
         self.kpt_extractor = KeypointExtractor()
         self.preprocessor = Preprocessor()
@@ -95,8 +100,9 @@ class InferenceWorker(QThread):
 
         # 时序
         self.frame_buffer = deque(maxlen=config.SEQ_LENGTH)
-        self.prediction_history = deque(maxlen=5)
+        self.prediction_history = deque(maxlen=10)  # 存储 (pred_idx, confidence)
         self.ball_court_history = deque(maxlen=10)
+        self.attn_weights = None
 
     def set_source(self, source, mode="video"):
         self.source = source
@@ -199,8 +205,20 @@ class InferenceWorker(QThread):
                             pass
 
         # 3. 球检测 + 跟踪
-        ball_det = self.ball_detector.detect(frame, person_keypoints=kpts)
-        ball_pos = self.tracker.update(ball_det, frame_count)
+        ball_det_centroid = self.ball_detector.detect(frame, person_keypoints=kpts)
+
+        # --- 规则引擎：过滤掉在球场边界外的球，防止鬼影 ---
+        tracker_input = None
+        if ball_det_centroid is not None and self.manual_corners is not None:
+            court_poly = np.array(self.manual_corners, dtype=np.int32)
+            # 直接对质心进行场地测试
+            if cv2.pointPolygonTest(court_poly, (ball_det_centroid[0], ball_det_centroid[1]), False) > 0:
+                tracker_input = (ball_det_centroid[0], ball_det_centroid[1])
+        elif ball_det_centroid is not None:
+            # 如果没有场地信息，则直接使用检测结果
+            tracker_input = (ball_det_centroid[0], ball_det_centroid[1])
+
+        ball_pos = self.tracker.update(tracker_input, frame_count)
 
         # 视频上画球标记（用跟踪位置，含卡尔曼预测）
         if ball_pos is not None:
@@ -217,8 +235,8 @@ class InferenceWorker(QThread):
                     color = (0, int(255 * (1 - alpha)), int(255 * alpha))
                     cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), color, 2)
 
-        # 球场热力：真检测时累积，静态目标过滤
-        if ball_det is not None and self.manual_corners is not None and ball_pos is not None:
+        # 球场热力：真检测时累积，静态目标过滤# 4. 球位置历史与热力图
+        if ball_det_centroid is not None and self.manual_corners is not None and ball_pos is not None:
             try:
                 court_pos = self.court_mapper.pixel_to_court(ball_pos)
                 if court_pos is not None and len(court_pos) > 0:
@@ -252,22 +270,61 @@ class InferenceWorker(QThread):
                 feat_seq = features[-config.SEQ_LENGTH:]
                 with torch.no_grad():
                     x = torch.FloatTensor(feat_seq).unsqueeze(0).to(self.device)
-                    logits = self.model(x)
+                    
+                    # 解包模型输出，同时获得logits和注意力权重
+                    output = self.model(x)
+                    if isinstance(output, tuple) and len(output) == 2:
+                        logits, attn_weights = output
+                        self.attn_weights = attn_weights.cpu().numpy().flatten()
+                    else:
+                        logits = output
+                        self.attn_weights = None # 旧模型或训练模式
+
                     probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+
+                # --- 规则引擎：开赛后禁用发球预测 ---
+                if self.serves_allowed:
+                    # 如果检测到高置信度的非发球动作，则认为比赛已开始
+                    current_pred_idx = np.argmax(probs)
+                    if current_pred_idx not in self.serve_indices and probs[current_pred_idx] > 0.75:
+                        print("[Rule Engine] 检测到非发球动作，比赛开始，禁用发球预测。")
+                        self.serves_allowed = False
+                
+                # 如果比赛已开始，则将所有发球类别的概率置零
+                if not self.serves_allowed:
+                    probs[self.serve_indices] = 0.0
+
                 pred_idx = np.argmax(probs)
                 confidence = probs[pred_idx]
                 all_probs = probs.tolist()
-                self.prediction_history.append(pred_idx)
+
+                # --- 置信度加权投票机制 ---
+                self.prediction_history.append((pred_idx, confidence))
+
                 if len(self.prediction_history) >= 3:
-                    vote = Counter(self.prediction_history).most_common(1)[0]
-                    pred_idx = vote[0]
-                    confidence = max(confidence, probs[pred_idx])
+                    # 累加每个类别的置信度
+                    votes = {}
+                    for p_idx, conf in self.prediction_history:
+                        votes[p_idx] = votes.get(p_idx, 0) + conf
+
+                    # 找到总置信度最高的类别
+                    if votes:
+                        best_idx = max(votes, key=votes.get)
+                        
+                        # 计算该类别的平均置信度作为最终置信度
+                        total_conf = sum(c for i, c in self.prediction_history if i == best_idx)
+                        count = sum(1 for i, c in self.prediction_history if i == best_idx)
+                        avg_conf = total_conf / count if count > 0 else 0
+                        
+                        pred_idx = best_idx
+                        confidence = avg_conf
+                        
                 label = self.class_names[pred_idx]
 
         self._draw_label(annotated, label, confidence)
 
         # 6. 发射信号
-        self.frame_ready.emit(annotated, label, confidence, all_probs)
+        self.frame_ready.emit(annotated, label, confidence, all_probs, self.attn_weights)
 
         ball_img = self.ball_heatmap.generate_heatmap()
         self.ball_heatmap_ready.emit(ball_img)
@@ -550,7 +607,8 @@ class BadmintonGUI(QMainWindow):
         self._init_heatmap_displays()
         self._log("热力图已重置")
 
-    def _on_frame_ready(self, frame, label, confidence, all_probs):
+    def _on_frame_ready(self, frame, label, confidence, all_probs, attn_weights):
+        # TODO: 使用 attn_weights 恢复注意力热力图显示
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
         self.video_label.set_frame_size(w, h)

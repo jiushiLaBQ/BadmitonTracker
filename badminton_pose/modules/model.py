@@ -40,7 +40,7 @@ class AttentionPooling(nn.Module):
 
         # 加权求和
         pooled = (x * attn_weights).sum(dim=1)  # (batch, hidden_size)
-        return pooled
+        return pooled, attn_weights.squeeze(-1)
 
 
 class BiLSTMClassifier(nn.Module):
@@ -95,6 +95,20 @@ class BiLSTMClassifier(nn.Module):
         self.lstm_dropouts = nn.ModuleList([
             nn.Dropout(self.dropout) for _ in range(self.num_layers)
         ])
+
+        # 新增：多头自注意力层，增强时序特征捕捉
+        embed_dim = self.hidden_size * 2
+        num_heads = config.ATTN_NUM_HEADS
+        assert embed_dim % num_heads == 0, \
+            f"embed_dim ({embed_dim}) 必须能被 num_heads ({num_heads}) 整除！"
+
+        self.self_attn = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=num_heads,
+            dropout=self.dropout,
+            batch_first=True
+        )
+        self.attn_norm = nn.LayerNorm(self.hidden_size * 2)
 
         # 注意力池化层（替代均值池化）
         self.attn_pool = AttentionPooling(self.hidden_size * 2)
@@ -152,13 +166,22 @@ class BiLSTMClassifier(nn.Module):
 
             x = self.lstm_dropouts[i](x)
 
+        # 新增：自注意力模块 + 残差连接
+        attn_input = x
+        attn_output, _ = self.self_attn(attn_input, attn_input, attn_input)
+        x = self.attn_norm(attn_input + attn_output) # 残差连接
+
         # 注意力池化（学习哪些帧对分类最重要）
-        x = self.attn_pool(x)  # (batch, hidden*2)
+        x, attn_weights = self.attn_pool(x)  # (batch, hidden*2), (batch, seq_len)
 
         # 全连接分类
         logits = self.classifier(x)  # (batch, num_classes)
 
-        return logits
+        # 在训练时只返回logits，在评估/推理时可以返回更多信息
+        if self.training:
+            return logits
+        else:
+            return logits, attn_weights
 
     def get_model_info(self):
         """获取模型参数量信息"""

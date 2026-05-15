@@ -107,6 +107,7 @@ MODEL_TYPE = 'BiLSTM'                    # 模型类型: 'BiLSTM' 或 'Transform
 # ============================================================
 LSTM_HIDDEN_SIZE = 128                   # LSTM隐藏层大小
 LSTM_NUM_LAYERS = 2                      # LSTM层数（双层，注意力池化）
+ATTN_NUM_HEADS = 8                       # 多头自注意力头数 (必须能被 LSTM_HIDDEN_SIZE*2 整除)
 FC_HIDDEN_SIZE = 128                     # 全连接层隐藏大小
 DROPOUT_RATE = 0.3                       # Dropout比率
 USE_BATCHNORM = True                     # 是否使用BatchNorm
