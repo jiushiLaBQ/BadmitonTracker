@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, f1_score
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -43,7 +43,7 @@ class Trainer:
         print(f"[Trainer] 使用设备: {self.device}")
         if self.device.type == 'cuda':
             print(f"[Trainer] GPU: {torch.cuda.get_device_name(0)}")
-            print(f"[Trainer] 显存: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+            print(f"[Trainer] 显存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
         # 加载数据集
         dataset_path = os.path.join(config.DATASETS_DIR, 'dataset.pt')
@@ -55,6 +55,10 @@ class Trainer:
         self.dataset = torch.load(dataset_path, weights_only=False)
         config.NUM_CLASSES = len(self.dataset['class_names'])
         config.CLASS_NAMES = self.dataset['class_names']
+
+        # 保存scaler参数供推理时使用
+        self.scaler_mean = self.dataset.get('scaler_mean', None)
+        self.scaler_scale = self.dataset.get('scaler_scale', None)
         print(f"[Trainer] 类别数: {config.NUM_CLASSES}")
         print(f"[Trainer] 训练样本: {len(self.dataset['y_train'])}")
         print(f"[Trainer] 验证样本: {len(self.dataset['y_val'])}")
@@ -69,27 +73,14 @@ class Trainer:
         info = self.model.get_model_info()
         print(f"[Trainer] 模型参数量: {info['total_params']:,}")
 
-        # --- 解决数据不平衡：计算类别权重 ---
-        print("[Trainer] 计算类别权重以解决数据不平衡...")
+        # --- 数据不平衡已由 WeightedRandomSampler 处理 ---
         y_train = self.dataset['y_train']
         class_counts = np.bincount(y_train, minlength=config.NUM_CLASSES)
-        
-        # 避免除以零
-        class_counts = np.where(class_counts == 0, 1, class_counts)
-        
-        # 权重与类别频率成反比
-        weights = 1. / class_counts
-        weights /= weights.sum()  # 归一化
-        weights *= config.NUM_CLASSES # 放大权重，使其均值约为1
-        
-        class_weights = torch.FloatTensor(weights).to(self.device)
-        
         for i, name in enumerate(config.CLASS_NAMES):
-            print(f"  - {name:<25}: 样本数={class_counts[i]}, 权重={class_weights[i]:.2f}")
-        
-        # 损失函数 - CrossEntropy + 类别权重 + 标签平滑
+            print(f"  - {name:<25}: 样本数={class_counts[i]}")
+
+        # 损失函数 - CrossEntropy + 标签平滑（不加类别权重，避免双重过补偿）
         self.criterion = nn.CrossEntropyLoss(
-            weight=class_weights,
             label_smoothing=config.LABEL_SMOOTHING
         )
 
@@ -124,7 +115,7 @@ class Trainer:
         self.train_accs = []
         self.val_accs = []
         self.lr_history = []
-        self.best_val_acc = 0.0
+        self.best_val_f1 = 0.0
         self.best_epoch = 0
         self.patience_counter = 0
 
@@ -187,7 +178,12 @@ class Trainer:
             data = data.to(self.device)
             labels = labels.to(self.device)
 
-            logits = self.model(data)
+            output = self.model(data)
+            # eval模式返回(logits, attn_weights)，训练模式返回logits
+            if isinstance(output, tuple):
+                logits = output[0]
+            else:
+                logits = output
             loss = self.criterion(logits, labels)
 
             total_loss += loss.item() * data.size(0)
@@ -216,7 +212,8 @@ class Trainer:
             train_loss, train_acc = self.train_one_epoch(epoch)
 
             # 验证
-            val_loss, val_acc, _, _ = self.validate(self.val_loader)
+            val_loss, val_acc, val_preds, val_labels = self.validate(self.val_loader)
+            val_f1 = f1_score(val_labels, val_preds, average='macro', zero_division=0)
 
             # 学习率调度
             self.scheduler.step()
@@ -234,23 +231,23 @@ class Trainer:
             # 打印进度
             print(f"Epoch [{epoch:3d}/{config.NUM_EPOCHS}] | "
                   f"Train Loss: {train_loss:.4f} Acc: {train_acc:.4f} | "
-                  f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f} | "
+                  f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f} F1: {val_f1:.4f} | "
                   f"LR: {current_lr:.2e} | Time: {elapsed:.1f}s")
 
-            # 保存最优模型
-            if val_acc > self.best_val_acc:
-                self.best_val_acc = val_acc
+            # 保存最优模型（以macro-F1为指标）
+            if val_f1 > self.best_val_f1:
+                self.best_val_f1 = val_f1
                 self.best_epoch = epoch
                 self.patience_counter = 0
                 self._save_checkpoint(epoch, val_acc)
-                print(f"  >>> 新最优模型! Val Acc: {val_acc:.4f}")
+                print(f"  >>> 新最优模型! Val F1: {val_f1:.4f} Acc: {val_acc:.4f}")
             else:
                 self.patience_counter += 1
 
             # 早停检查
             if self.patience_counter >= config.EARLY_STOP_PATIENCE:
                 print(f"\n早停触发! {config.EARLY_STOP_PATIENCE}轮无改善")
-                print(f"最优轮次: Epoch {self.best_epoch}, Val Acc: {self.best_val_acc:.4f}")
+                print(f"最优轮次: Epoch {self.best_epoch}, Val F1: {self.best_val_f1:.4f}")
                 break
 
         # 绘制训练曲线
@@ -275,7 +272,9 @@ class Trainer:
                 'num_layers': config.LSTM_NUM_LAYERS,
                 'dropout': config.DROPOUT_RATE,
                 'fc_hidden': config.FC_HIDDEN_SIZE,
-            }
+            },
+            'scaler_mean': self.scaler_mean,
+            'scaler_scale': self.scaler_scale,
         }, save_path)
 
     def _plot_curves(self):

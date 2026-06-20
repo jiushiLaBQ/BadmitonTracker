@@ -1,1 +1,276 @@
-#BadmitonTracker
+# 鹰眼智析 — 羽毛球战术分析系统
+
+> 基于多模态 AI 的羽毛球运动姿态识别与战术分析平台
+
+实时动作识别 · 球落点热力图 · 飞行轨迹预测 · 智能训练建议
+
+---
+
+## 核心功能
+
+- **18 种击球动作识别** — 发球、杀球、吊球、高远球、网前球等全覆盖
+- **球落点热力图** — 基于透视变换的球场坐标映射，精准呈现落点分布
+- **球员步伐热力图** — 分析移动范围与站位习惯
+- **飞行轨迹拟合** — 卡尔曼跟踪 + 多项式拟合，预测球落点
+- **智能训练建议** — 视频播放一轮后自动生成中文分析报告
+
+---
+
+## 效果展示
+
+![实时推理](screenshots/gui_inference.png)
+
+*视频 + 骨架叠加 + 球轨迹 + 球场热力图 + 动作识别*
+
+---
+
+## 技术架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    动作识别管线                           │
+│                                                         │
+│  视频 → YOLOv8-Pose → 17关键点 → 特征工程(128维)         │
+│       → 滑动窗口(15帧) → BiLSTM + 注意力池化 → 动作分类  │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│                    球场分析管线                           │
+│                                                         │
+│  视频 → 混合球检测(运动+颜色+YOLO) → 卡尔曼滤波跟踪      │
+│       → 透视变换 → 球场坐标映射 → 热力图 + 落点统计       │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 项目结构
+
+```
+badminton_pose/
+├── config.py                 # 全局配置（超参数、路径、模型设置）
+├── run.py                    # 主入口脚本（完整流程编排）
+├── train.py                  # 模型训练
+├── evaluate.py               # 模型评估（混淆矩阵、准确率）
+├── gui_inference.py          # 实时推理 GUI
+├── requirements.txt          # Python 依赖
+├── court.jpg                 # 球场底图
+├── modules/
+│   ├── keypoint_extractor.py # YOLOv8-Pose 关键点提取
+│   ├── preprocessor.py       # 降噪 + 特征工程（128维/帧）
+│   ├── dataset_builder.py    # 滑动窗口数据集 + 增强
+│   ├── model.py              # BiLSTM 分类器（注意力池化）
+│   ├── transformer_model.py  # Transformer 分类器（备选）
+│   ├── focal_loss.py         # Focal Loss（类别不均衡）
+│   ├── ball_detector.py      # 球检测 + 卡尔曼跟踪 + 轨迹拟合
+│   ├── court_detector.py     # 球场检测 + 手动标定
+│   ├── court_mapper.py       # 像素↔球场坐标映射
+│   ├── heatmap_generator.py  # 球场热力图生成
+│   └── advisor.py            # 训练建议生成器
+├── outputs/
+│   ├── keypoints/            # 关键点数据（.npy）
+│   ├── datasets/             # 构建好的数据集
+│   ├── models/               # 训练好的模型权重
+│   └── curves/               # 训练曲线与评估图表
+└── models/                   # 预训练权重（YOLOv8）
+```
+
+---
+
+## 支持的动作类别
+
+| 分组 | 动作 |
+|:---:|:---|
+| **进攻** | Smash（杀球）、Tap Smash（点杀）、Drop Shot（吊球）、Rush Shot（扑球）、Cut（切球） |
+| **防守** | Block（挡网）、Lift（挑球）、Defensive Clear（防守高远球）、Defensive Drive（防守平抽） |
+| **发球** | Short Serve（短发球）、Long Serve（长发球） |
+| **网前** | Push Shot（推球）、Flat Shot（平抽球）、Short Flat Shot（网前平球） |
+| **过渡** | Clear（高远球）、Cross Court Flight（斜线球）、Transitional Slice（过渡切球）、Rear Court Flat Drive（后场平抽） |
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Python >= 3.10
+- CUDA（可选，GPU 加速训练）
+
+### 安装依赖
+
+```bash
+pip install -r badminton_pose/requirements.txt
+```
+
+### 运行
+
+```bash
+python badminton_pose/gui_inference.py
+```
+
+---
+
+## 使用说明
+
+### 1. 实时推理 GUI
+
+启动后进入主界面，左侧为视频播放区，右侧面板显示分析结果。
+
+**操作步骤：**
+
+1. **加载视频** — 点击工具栏「加载视频」选择视频文件，或点击「摄像头」使用实时摄像头
+2. **标定球场** — 视频暂停在第一帧，在画面上依次点击球场四个角点（左上 → 右上 → 右下 → 左下），点击「标定球场」确认
+3. **自动推理** — 标定完成后系统自动开始动作识别和球跟踪
+4. **查看结果** — 右侧面板实时更新热力图和识别结果
+
+**工具栏功能：**
+
+| 按钮 | 功能 |
+|:---|:---|
+| 加载视频 | 选择本地视频文件 |
+| 摄像头 | 使用摄像头实时分析 |
+| 标定球场 | 在视频画面上点击 4 个角点标定 |
+| 水平翻转 | 镜像翻转球场坐标映射 |
+| 垂直翻转 | 上下翻转球场坐标映射 |
+| 停止 | 暂停推理 |
+| 重置热力图 | 清除所有累积的热力图数据 |
+
+**右侧面板：**
+
+- **球落点热力图** — 球场上落点密度分布
+- **球员步伐热力图** — 球员移动范围热力图
+- **训练建议** — 视频播放一轮后自动生成中文分析报告
+- **识别结果** — 当前动作类别、置信度、Top-5 概率
+
+### 2. 球场标定
+
+准确的球场标定是热力图精度的关键。
+
+**手动标定流程：**
+
+1. 点击「标定球场」按钮，视频暂停在第一帧
+2. 在画面上按顺序点击 4 个角点：
+   - 第 1 点：球场**左上**角
+   - 第 2 点：球场**左下**角
+   - 第 3 点：球场**右下**角
+   - 第 4 点：球场**右上**角
+3. 系统自动计算透视变换矩阵
+
+**标定提示：**
+
+- 点击位置应尽量精确，贴近球场边界线交点
+- 如果标定结果不准确，可点击「重置热力图」后重新标定
+- 支持「水平翻转」和「垂直翻转」修正摄像头镜像问题
+- 自动标定失败时会使用默认映射（精度较低）
+
+### 3. 训练建议
+
+视频播放一轮后自动生成，包含以下分析维度：
+
+- **动作分布** — 各动作占比、进攻/防守比例分析
+- **落点分布** — 前/后场、左/右半场分布、落点集中度
+- **步伐分析** — 移动范围、平均站位偏移
+- **技术多样性** — 使用动作种类数、缺失技术提示
+
+### 4. 模型训练
+
+**数据集准备：**
+
+视频数据按动作类别存放在子文件夹中，目录结构：
+```
+VideoBadminton_Dataset/
+├── 00_Short Serve/
+│   ├── video1.mp4
+│   └── ...
+├── 01_Cross Court Flight/
+└── ... (共 18 个类别)
+```
+
+**完整训练流程：**
+
+```bash
+# 一键执行完整流程
+python run.py --step all
+
+# 或分步执行
+python run.py --step extract      # 1. 提取关键点
+python run.py --step preprocess   # 2. 特征工程
+python run.py --step build        # 3. 构建数据集
+python run.py --step train        # 4. 训练模型
+python run.py --step evaluate     # 5. 评估模型
+```
+
+| 步骤 | 命令 | 说明 |
+|:---|:---|:---|
+| 关键点提取 | `python run.py --step extract` | YOLOv8-Pose 提取 17 个 COCO 关键点 |
+| 特征工程 | `python run.py --step preprocess` | 降噪 + 归一化 + 128 维特征计算 |
+| 构建数据集 | `python run.py --step build` | 滑动窗口(15帧) + 分层划分 + 数据增强 |
+| 训练模型 | `python run.py --step train` | BiLSTM + AdamW + 余弦退火 + 早停 |
+| 评估模型 | `python run.py --step evaluate` | 混淆矩阵 + 每类准确率 + 训练曲线 |
+| 实时 GUI | `python run.py --step gui` | 启动实时推理界面 |
+
+**训练输出：**
+
+- `outputs/models/best_model.pth` — 最佳模型权重
+- `outputs/curves/training_curves.png` — 训练/验证损失与准确率曲线
+- `outputs/curves/confusion_matrix.png` — 混淆矩阵
+- `outputs/curves/per_class_accuracy.png` — 每类准确率柱状图
+
+---
+
+## 模型架构
+
+### BiLSTM（默认）
+
+```
+输入 (batch, 15, 128)
+ → BatchNorm → BiLSTM×2 (hidden=96, 双向)
+ → 注意力池化 (AttentionPooling)
+ → FC(192→96) → ReLU → Dropout
+ → FC(96→类别数)
+```
+
+- 双向 LSTM 捕获时序上下文
+- 注意力池化自动学习关键帧权重
+- 每层 BatchNorm + Dropout 防止过拟合
+
+### Transformer（备选）
+
+```
+输入 (batch, 15, 128)
+ → 线性嵌入 + 正弦位置编码
+ → TransformerEncoder×4 (8头, d=128)
+ → 全局平均池化
+ → FC(128→64) → FC(64→类别数)
+```
+
+在 `config.py` 中设置 `MODEL_TYPE = 'Transformer'` 切换。
+
+---
+
+## 配置说明
+
+核心配置项在 `badminton_pose/config.py` 中，按功能分组：
+
+| 分组 | 关键参数 | 默认值 |
+|:---|:---|:---|
+| 模型 | `MODEL_TYPE` | `BiLSTM` |
+| 特征 | `SEQ_LENGTH` / `TOTAL_FEATURES` | 15 帧 / 128 维 |
+| 训练 | `BATCH_SIZE` / `LEARNING_RATE` / `NUM_EPOCHS` | 64 / 5e-4 / 120 |
+| 检测 | `YOLO_CONF` / `PERSON_CONF` | 0.50 / 0.60 |
+| 跟踪 | `BALL_TRACK_MAX_DISTANCE` / `KALMAN_MEASUREMENT_NOISE` | 80px / 4.0 |
+| 热力图 | `HEATMAP_RESOLUTION` / `HEATMAP_ALPHA` | 200 / 0.6 |
+
+---
+
+## License
+
+本项目仅供学习和研究使用。
+
+---
+
+## 致谢
+
+- [YOLOv8](https://github.com/ultralytics/ultralytics) — 目标检测与姿态估计
+- [PyTorch](https://pytorch.org/) — 深度学习框架
+- [VideoBadminton_Dataset](https://github.com/) — 羽毛球视频数据集

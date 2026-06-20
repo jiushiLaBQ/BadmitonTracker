@@ -239,7 +239,8 @@ class CourtDetector:
         """
         将 4 个角点排序为 TL, TR, BR, BL 顺序
 
-        策略：sum 最小为左上，sum 最大为右下；diff 最小为右上，diff 最大为左下
+        策略：以质心为原点，按 atan2 角度排序，从最左上角开始顺时针排列。
+        对任意摄像头角度都稳定。
 
         Args:
             corners: np.ndarray (4, 2)
@@ -247,14 +248,21 @@ class CourtDetector:
         Returns:
             np.ndarray (4, 2) 排序后的角点
         """
-        s = corners.sum(axis=1)
-        d = corners[:, 0] - corners[:, 1]
+        center = corners.mean(axis=0)
+        # atan2: 右=0, 下=π/2, 左=±π, 上=-π/2
+        angles = np.arctan2(corners[:, 1] - center[1], corners[:, 0] - center[0])
 
+        # 按角度从小到大排序（从右上方逆时针方向）
+        sorted_idx = np.argsort(angles)
+
+        # 找到 TL：x+y 最小的那个角点
+        s = corners.sum(axis=1)
+        tl_in_sorted = np.argmin(s[sorted_idx])
+
+        # 从 TL 开始，顺时针取 4 个角点
         ordered = np.zeros((4, 2), dtype=np.float32)
-        ordered[0] = corners[np.argmin(s)]    # TL: x+y 最小
-        ordered[2] = corners[np.argmax(s)]    # BR: x+y 最大
-        ordered[1] = corners[np.argmin(d)]    # TR: x-y 最小
-        ordered[3] = corners[np.argmax(d)]    # BL: x-y 最大
+        for i in range(4):
+            ordered[i] = corners[sorted_idx[(tl_in_sorted + i) % 4]]
 
         return ordered
 

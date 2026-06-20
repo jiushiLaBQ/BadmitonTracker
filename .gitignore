@@ -65,3 +65,4 @@ venv/
 # Ignore model files, datasets, and other generated outputs
 /badminton_pose/outputs/
 *.pth
+*.pt

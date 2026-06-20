@@ -84,6 +84,9 @@ class HeatmapGenerator:
 
         pts = np.array(points)
 
+        # 调试：打印前几个点的坐标
+        print(f"[HeatmapDebug] 总点数={len(pts)}, 前5个: {pts[:5].tolist()}")
+
         # 生成 2D 直方图
         heatmap, xedges, yedges = self._histogram_heatmap(pts, width, height)
 
@@ -100,9 +103,6 @@ class HeatmapGenerator:
 
         # 应用颜色映射
         heatmap_color = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-
-        # 上下翻转（因为图像坐标 y 向下，球场 y 向上）
-        heatmap_color = cv2.flip(heatmap_color, 0)
 
         # 叠加热力图到球场图
         result = cv2.addWeighted(court_img, 1.0 - self.alpha, heatmap_color, self.alpha, 0)
@@ -129,12 +129,22 @@ class HeatmapGenerator:
             range=[[0, config.COURT_LENGTH_M], [0, config.COURT_WIDTH_M]]
         )
 
-        # 缩放到画布尺寸
+        # histogram2d 返回 (x_bins, y_bins)，axis0=x(0~13.4m), axis1=y(0~6.1m)
+        # 左右翻转 + 左旋90° → axis0=y(行), axis1=x(列)
+        heatmap = np.fliplr(heatmap)         # 左右翻转
+        heatmap = np.rot90(heatmap, k=1)     # 左旋90° → (y_bins, x_bins)
         heatmap = cv2.resize(
             heatmap.astype(np.float32),
             (width, height),
             interpolation=cv2.INTER_LINEAR
         )
+
+        # 调试：打印热点位置
+        if heatmap.max() > 0:
+            peak = np.unravel_index(heatmap.argmax(), heatmap.shape)
+            print(f"[HeatmapDebug] shape={heatmap.shape}, peak=row{peak[0]},col{peak[1]}, "
+                  f"court_x≈{peak[1]/width*config.COURT_LENGTH_M:.1f}m, "
+                  f"court_y≈{peak[0]/height*config.COURT_WIDTH_M:.1f}m")
 
         return heatmap, xedges, yedges
 

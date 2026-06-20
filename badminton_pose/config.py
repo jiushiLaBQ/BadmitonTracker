@@ -105,10 +105,10 @@ MODEL_TYPE = 'BiLSTM'                    # 模型类型: 'BiLSTM' 或 'Transform
 # ============================================================
 # BiLSTM 模型配置
 # ============================================================
-LSTM_HIDDEN_SIZE = 128                   # LSTM隐藏层大小
+LSTM_HIDDEN_SIZE = 96                    # LSTM隐藏层大小（降低以减少过拟合）
 LSTM_NUM_LAYERS = 2                      # LSTM层数（双层，注意力池化）
 ATTN_NUM_HEADS = 8                       # 多头自注意力头数 (必须能被 LSTM_HIDDEN_SIZE*2 整除)
-FC_HIDDEN_SIZE = 128                     # 全连接层隐藏大小
+FC_HIDDEN_SIZE = 96                      # 全连接层隐藏大小
 DROPOUT_RATE = 0.3                       # Dropout比率
 USE_BATCHNORM = True                     # 是否使用BatchNorm
 
@@ -125,7 +125,7 @@ TRANSFORMER_N_LAYERS = 4                 # Transformer编码器层数
 # 训练配置
 # ============================================================
 BATCH_SIZE = 64                          # 批次大小
-LEARNING_RATE = 1e-3                     # 初始学习率
+LEARNING_RATE = 5e-4                     # 初始学习率（降低以稳定训练）
 WEIGHT_DECAY = 1e-4                      # 权重衰减
 NUM_EPOCHS = 120                         # 最大训练轮数
 EARLY_STOP_PATIENCE = 25                 # 早停耐心值
@@ -191,11 +191,11 @@ BALL_MODEL = "yolov8n.pt"                      # YOLOv8n 模型
 BALL_CONF = 0.15                               # 低阈值检测小目标
 BALL_IMG_SIZE = 640                            # 球检测输入尺寸
 BALL_IOU = 0.45                                # NMS IoU 阈值
-BALL_MAX_AREA = 800                            # 球最大面积（像素²）
+BALL_MAX_AREA = 300                            # 球最大面积（像素²）
 BALL_TRACK_MAX_DISAPPEARED = 15                # 丢失目标最大保留帧数
 BALL_TRACK_MAX_DISTANCE = 80                   # 关联匹配最大像素距离
 KALMAN_PROCESS_NOISE = 0.03                    # 卡尔曼过程噪声
-KALMAN_MEASUREMENT_NOISE = 10.0                # 卡尔曼观测噪声
+KALMAN_MEASUREMENT_NOISE = 4.0                 # 卡尔曼观测噪声
 TRAJECTORY_FIT_ORDER = 2                       # 轨迹多项式阶数（2=抛物线）
 TRAJECTORY_MIN_POINTS = 4                      # 拟合最少点数
 LANDING_PREDICTION_FRAMES = 30                 # 预测未来帧数

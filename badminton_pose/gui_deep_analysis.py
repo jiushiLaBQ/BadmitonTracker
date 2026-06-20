@@ -69,6 +69,7 @@ class DeepAnalysisWorker(QThread):
         self.mode = "video"
         self.court_detected = False
         self.H_warp = None
+        self.manual_corners = None
 
         # 设备
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -80,6 +81,7 @@ class DeepAnalysisWorker(QThread):
             self.model = None
             self.class_names = []
             self.num_classes = 0
+            self.scaler = None
         else:
             checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
             from modules.model import BiLSTMClassifier
@@ -96,6 +98,19 @@ class DeepAnalysisWorker(QThread):
             self.model.eval()
             self.class_names = checkpoint['class_names']
             self.num_classes = checkpoint['num_classes']
+
+            # 加载StandardScaler参数
+            scaler_mean = checkpoint.get('scaler_mean', None)
+            scaler_scale = checkpoint.get('scaler_scale', None)
+            if scaler_mean is not None and scaler_scale is not None:
+                from sklearn.preprocessing import StandardScaler
+                self.scaler = StandardScaler()
+                self.scaler.mean_ = scaler_mean
+                self.scaler.scale_ = scaler_scale
+                self.scaler.n_features_in_ = len(scaler_mean)
+            else:
+                self.scaler = None
+
             self.status_update.emit(f"模型加载完成 | 设备: {self.device} | 类别数: {self.num_classes}")
 
         # 推理组件
@@ -120,6 +135,7 @@ class DeepAnalysisWorker(QThread):
 
         # 当前预测类别索引（用于热力图分类）
         self.current_class_idx = None
+        self._last_trajectory_id = -1
 
     def set_source(self, source, mode="video"):
         """设置输入源"""
@@ -129,6 +145,8 @@ class DeepAnalysisWorker(QThread):
         self.prediction_history.clear()
         self.court_detected = False
         self.current_class_idx = None
+        self._last_trajectory_id = -1
+        self.manual_corners = None
         # 重置跟踪器
         self.tracker = CentroidTracker()
 
@@ -145,8 +163,6 @@ class DeepAnalysisWorker(QThread):
             self.status_update.emit(f"无法打开视频源: {self.source}")
             return
 
-        fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
-        frame_interval = max(1, int(fps / 15))
         frame_count = 0
 
         while self.running:
@@ -159,9 +175,6 @@ class DeepAnalysisWorker(QThread):
                     break
 
             frame_count += 1
-            if frame_count % frame_interval != 0:
-                continue
-
             self._process_frame(frame, frame_count)
 
         if self.cap:
@@ -176,14 +189,22 @@ class DeepAnalysisWorker(QThread):
     def set_manual_corners(self, corners):
         """
         接收手动标定的角点，计算透视变换
+        用户需按 左上→右上→右下→左下 顺序点击
 
         Args:
             corners: np.ndarray (4,2) 用户点击的角点
         """
         H_warp, H_court = self.court_detector.compute_homography(corners)
         self.H_warp = H_warp
+        self.manual_corners = corners
         self.court_mapper.set_homography(H_court)
         self.court_detected = True
+        # 调试：验证角点映射
+        labels = ['TL', 'TR', 'BR', 'BL']
+        expected = [[0, 0], [13.4, 0], [13.4, 6.1], [0, 6.1]]
+        for i, (c, lbl, exp) in enumerate(zip(corners, labels, expected)):
+            court_pt = self.court_mapper.pixel_to_court(c.reshape(1, 2))[0]
+            print(f"  Corner {i} ({lbl}): pixel=({c[0]:.0f}, {c[1]:.0f}) -> court=({court_pt[0]:.2f}, {court_pt[1]:.2f})  expected=({exp[0]}, {exp[1]})")
         self.status_update.emit("手动球场标定完成")
 
     def reset_heatmap(self):
@@ -218,6 +239,15 @@ class DeepAnalysisWorker(QThread):
         if kpts is not None:
             self._draw_skeleton(annotated, kpts)
             self.frame_buffer.append(kpts)
+
+        # 画球场轮廓（标定后）
+        if self.manual_corners is not None:
+            pts = self.manual_corners.astype(np.int32)
+            cv2.polylines(annotated, [pts], True, (0, 255, 0), 2)
+            for i, pt in enumerate(pts):
+                cv2.circle(annotated, tuple(pt), 6, (0, 0, 255), -1)
+                cv2.putText(annotated, str(i + 1), (int(pt[0]) + 8, int(pt[1]) - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         # ========== 3. 球检测 + 跟踪 ==========
         ball_det = self.ball_detector.detect(frame, person_keypoints=kpts)
@@ -279,6 +309,10 @@ class DeepAnalysisWorker(QThread):
             if features.shape[0] >= config.SEQ_LENGTH:
                 feat_seq = features[-config.SEQ_LENGTH:]
 
+                # 应用StandardScaler（训练时拟合，推理时必须transform）
+                if self.scaler is not None:
+                    feat_seq = self.scaler.transform(feat_seq)
+
                 with torch.no_grad():
                     x = torch.FloatTensor(feat_seq).unsqueeze(0).to(self.device)
                     logits = self.model(x)
@@ -314,22 +348,27 @@ class DeepAnalysisWorker(QThread):
                     (config.BIRDEYE_WIDTH, config.BIRDEYE_HEIGHT)
                 )
 
-            # 落点映射 + 热力图累积
-            if ball_pos is not None:
-                try:
-                    court_pos = self.court_mapper.pixel_to_court(ball_pos)
-                    if court_pos is not None and len(court_pos) > 0:
-                        cp = court_pos[0]
-                        if self.court_mapper.is_in_court(cp):
-                            self.heatmap_gen.add_point(cp, self.current_class_idx)
+            # 落点映射 + 热力图累积（轨迹结束后取末端落点）
+            completed = self.tracker.get_new_completed_trajectories(self._last_trajectory_id)
+            for traj_idx, traj_points in completed:
+                self._last_trajectory_id = max(self._last_trajectory_id, traj_idx)
+                if len(traj_points) >= 3:
+                    tail = traj_points[-min(5, len(traj_points)):]
+                    tail_positions = [(p[0], p[1]) for p in tail]
+                    try:
+                        court_pts = self.court_mapper.pixel_to_court(tail_positions)
+                        valid = [pt for pt in court_pts if self.court_mapper.is_in_court(pt)]
+                        if valid:
+                            landing = np.mean(valid, axis=0)
+                            self.heatmap_gen.add_point(tuple(landing), self.current_class_idx)
 
                             # 在俯视图上标记落点
-                            px = int(cp[0] / config.COURT_LENGTH_M * config.BIRDEYE_WIDTH)
-                            py = int(cp[1] / config.COURT_WIDTH_M * config.BIRDEYE_HEIGHT)
+                            px = int(landing[0] / config.COURT_LENGTH_M * config.BIRDEYE_WIDTH)
+                            py = int(landing[1] / config.COURT_WIDTH_M * config.BIRDEYE_HEIGHT)
                             if 0 <= px < config.BIRDEYE_WIDTH and 0 <= py < config.BIRDEYE_HEIGHT:
                                 cv2.circle(birdeye_img, (px, py), 5, (0, 0, 255), -1)
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
             # 生成热力图
             heatmap_img = self.heatmap_gen.generate_heatmap()

@@ -8,6 +8,7 @@
 import os
 import sys
 import time
+import threading
 import cv2
 import numpy as np
 import torch
@@ -29,6 +30,7 @@ from modules.ball_detector import BallDetector, CentroidTracker
 from modules.court_detector import CourtDetector
 from modules.court_mapper import CourtMapper, draw_court_diagram
 from modules.heatmap_generator import HeatmapGenerator
+from modules.advisor import Advisor
 
 SKELETON_CONNECTIONS = [
     (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
@@ -48,6 +50,7 @@ class InferenceWorker(QThread):
     ball_heatmap_ready = pyqtSignal(np.ndarray)
     footwork_heatmap_ready = pyqtSignal(np.ndarray)
     status_update = pyqtSignal(str)
+    report_ready = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,6 +76,20 @@ class InferenceWorker(QThread):
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         self.class_names = checkpoint['class_names']
+
+        # 加载StandardScaler参数（训练时保存，推理时必须使用）
+        scaler_mean = checkpoint.get('scaler_mean', None)
+        scaler_scale = checkpoint.get('scaler_scale', None)
+        if scaler_mean is not None and scaler_scale is not None:
+            from sklearn.preprocessing import StandardScaler
+            self.scaler = StandardScaler()
+            self.scaler.mean_ = scaler_mean
+            self.scaler.scale_ = scaler_scale
+            self.scaler.n_features_in_ = len(scaler_mean)
+            print(f"[Inference] StandardScaler已加载 (mean shape: {scaler_mean.shape})")
+        else:
+            self.scaler = None
+            print("[Inference] 警告: checkpoint中无scaler参数，推理精度可能下降")
 
         # --- 规则引擎状态 ---
         self.serves_allowed = True
@@ -101,15 +118,19 @@ class InferenceWorker(QThread):
         # 时序
         self.frame_buffer = deque(maxlen=config.SEQ_LENGTH)
         self.prediction_history = deque(maxlen=10)  # 存储 (pred_idx, confidence)
-        self.ball_court_history = deque(maxlen=10)
+        self._last_trajectory_id = -1
         self.attn_weights = None
+
+        # 视频模式：等待标定后再开始推理
+        self.wait_calibration = False
+        self._calibration_done = threading.Event()
 
     def set_source(self, source, mode="video"):
         self.source = source
         self.mode = mode
         self.frame_buffer.clear()
         self.prediction_history.clear()
-        self.ball_court_history.clear()
+        self._last_trajectory_id = -1
         self.foot_pixel_positions.clear()
         self.court_detected = False
         self.manual_corners = None
@@ -118,12 +139,19 @@ class InferenceWorker(QThread):
         self.footwork_heatmap.reset()
 
     def set_manual_corners(self, corners):
-        """用户手动标定球场4角"""
+        """用户手动标定球场4角（按 左上→右上→右下→左下 顺序点击）"""
         self.manual_corners = corners
         H_warp, H_court = self.court_detector.compute_homography(corners)
         self.court_mapper.set_homography(H_court)
         self.court_detected = True
+        # 调试：验证角点映射
+        labels = ['TL', 'TR', 'BR', 'BL']
+        expected = [[0, 0], [13.4, 0], [13.4, 6.1], [0, 6.1]]
+        for i, (c, lbl, exp) in enumerate(zip(corners, labels, expected)):
+            court_pt = self.court_mapper.pixel_to_court(c.reshape(1, 2))[0]
+            print(f"  Corner {i} ({lbl}): pixel={c} -> court=({court_pt[0]:.2f}, {court_pt[1]:.2f})  expected=({exp[0]}, {exp[1]})")
         self.status_update.emit("球场手动标定完成，映射已更新")
+        self._calibration_done.set()  # 唤醒等待中的run()
 
     def run(self):
         self.running = True
@@ -136,22 +164,32 @@ class InferenceWorker(QThread):
             self.status_update.emit(f"无法打开视频源: {self.source}")
             return
 
-        fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
-        frame_interval = max(1, int(fps / 15))
+        # 视频模式：显示第一帧，等待标定完成后再开始推理
+        if self.wait_calibration and self.mode == "video":
+            ret, first_frame = self.cap.read()
+            if ret:
+                self.frame_ready.emit(first_frame, "", 0.0, [], None)
+                self.status_update.emit("请在视频画面上点击球场4个角点（左上→右上→右下→左下）")
+            self._calibration_done.wait()  # 阻塞直到标定完成
+            if not self.running:
+                self.cap.release()
+                return
+            # 标定完成，从头开始推理
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
         frame_count = 0
 
         while self.running:
             ret, frame = self.cap.read()
             if not ret:
                 if self.mode == "video":
+                    # 视频结束，生成建议报告
+                    self._generate_report()
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
                 break
 
             frame_count += 1
-            if frame_count % frame_interval != 0:
-                continue
-
             self._process_frame(frame, frame_count)
 
         if self.cap:
@@ -159,8 +197,23 @@ class InferenceWorker(QThread):
 
     def stop(self):
         self.running = False
+        self._calibration_done.set()  # 唤醒等待标定的线程
         if self.cap is not None:
             self.cap.release()
+
+    def _generate_report(self):
+        """视频结束时生成训练建议报告"""
+        try:
+            advisor = Advisor()
+            report = advisor.generate_report(
+                self.ball_heatmap,
+                self.footwork_heatmap,
+                self.class_names
+            )
+            if report:
+                self.report_ready.emit(report)
+        except Exception as e:
+            self.status_update.emit(f"报告生成失败: {e}")
 
     def _process_frame(self, frame, frame_count):
         h, w = frame.shape[:2]
@@ -175,6 +228,23 @@ class InferenceWorker(QThread):
                 self.status_update.emit("球场自动检测失败，点击 [手动标定球场] 提升精度")
             else:
                 self.status_update.emit("球场自动检测成功")
+            # 调试：打印自动检测角点映射
+            corners = result['corners']
+            labels = ['TL', 'TR', 'BR', 'BL']
+            expected = [[0, 0], [13.4, 0], [13.4, 6.1], [0, 6.1]]
+            print(f"[AutoDetect] fallback={result.get('fallback')}")
+            for i, (c, lbl, exp) in enumerate(zip(corners, labels, expected)):
+                court_pt = self.court_mapper.pixel_to_court(c.reshape(1, 2))[0]
+                print(f"  Corner {i} ({lbl}): pixel=({c[0]:.0f}, {c[1]:.0f}) -> court=({court_pt[0]:.2f}, {court_pt[1]:.2f})  expected=({exp[0]}, {exp[1]})")
+
+        # 画球场轮廓（标定后）
+        if self.manual_corners is not None:
+            pts = self.manual_corners.astype(np.int32)
+            cv2.polylines(annotated, [pts], True, (0, 255, 0), 2)
+            for i, pt in enumerate(pts):
+                cv2.circle(annotated, tuple(pt), 6, (0, 0, 255), -1)
+                cv2.putText(annotated, str(i + 1), (int(pt[0]) + 8, int(pt[1]) - 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         # 2. 姿态估计
         kpts = self.kpt_extractor._detect_pose(frame)
@@ -235,24 +305,24 @@ class InferenceWorker(QThread):
                     color = (0, int(255 * (1 - alpha)), int(255 * alpha))
                     cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), color, 2)
 
-        # 球场热力：真检测时累积，静态目标过滤# 4. 球位置历史与热力图
-        if ball_det_centroid is not None and self.manual_corners is not None and ball_pos is not None:
-            try:
-                court_pos = self.court_mapper.pixel_to_court(ball_pos)
-                if court_pos is not None and len(court_pos) > 0:
-                    cp = court_pos[0]
-                    if self.court_mapper.is_in_court(cp):
-                        is_moving = True
-                        if len(self.ball_court_history) >= 3:
-                            recent = np.array(list(self.ball_court_history)[-5:])
-                            spread = np.sqrt(((recent - recent.mean(axis=0))**2).sum(axis=1)).max()
-                            if spread < 0.5:
-                                is_moving = False
-                        if is_moving:
-                            self.ball_heatmap.add_point(cp)
-                        self.ball_court_history.append(cp)
-            except Exception:
-                pass
+        # 球场热力：轨迹结束后，取末端点平均位置作为落点
+        if self.manual_corners is not None:
+            # 取最近一次动作预测作为类别标签
+            recent_class = self.prediction_history[-1][0] if self.prediction_history else None
+            completed = self.tracker.get_new_completed_trajectories(self._last_trajectory_id)
+            for traj_idx, traj_points in completed:
+                self._last_trajectory_id = max(self._last_trajectory_id, traj_idx)
+                if len(traj_points) >= 3:
+                    tail = traj_points[-min(5, len(traj_points)):]
+                    tail_positions = [(p[0], p[1]) for p in tail]
+                    try:
+                        court_pts = self.court_mapper.pixel_to_court(tail_positions)
+                        valid = [pt for pt in court_pts if self.court_mapper.is_in_court(pt)]
+                        if valid:
+                            landing = np.mean(valid, axis=0)
+                            self.ball_heatmap.add_point(tuple(landing), class_idx=recent_class)
+                    except Exception:
+                        pass
 
         # 4. 在视频上叠加脚步热力图（像素坐标，不需要球场映射）
         foot_overlay = self._draw_footwork_on_video(annotated)
@@ -268,6 +338,9 @@ class InferenceWorker(QThread):
             features = self.preprocessor.process_sequence(seq)
             if features.shape[0] >= config.SEQ_LENGTH:
                 feat_seq = features[-config.SEQ_LENGTH:]
+                # 应用StandardScaler（训练时拟合，推理时必须transform）
+                if self.scaler is not None:
+                    feat_seq = self.scaler.transform(feat_seq)
                 with torch.no_grad():
                     x = torch.FloatTensor(feat_seq).unsqueeze(0).to(self.device)
                     
@@ -487,6 +560,18 @@ class BadmintonGUI(QMainWindow):
         foot_layout.addWidget(self.footwork_label)
         right_layout.addWidget(foot_group)
 
+        # 训练建议
+        report_group = QGroupBox("训练建议")
+        report_layout = QVBoxLayout(report_group)
+        self.report_text = QTextEdit()
+        self.report_text.setReadOnly(True)
+        self.report_text.setMaximumHeight(180)
+        self.report_text.setFont(QFont("Microsoft YaHei", 9))
+        self.report_text.setStyleSheet("background: #f8f9fa; color: #000000; border: 1px solid #dee2e6; border-radius: 4px; padding: 6px;")
+        self.report_text.setPlaceholderText("视频播放一轮后自动生成训练建议...")
+        report_layout.addWidget(self.report_text)
+        right_layout.addWidget(report_group)
+
         # 识别结果
         result_group = QGroupBox("动作识别")
         result_layout = QVBoxLayout(result_group)
@@ -586,11 +671,19 @@ class BadmintonGUI(QMainWindow):
         self.stop_inference()
         self.worker = InferenceWorker(self)
         self.worker.frame_ready.connect(self._on_frame_ready)
+        self.worker.status_update.connect(self._log)
         self.worker.ball_heatmap_ready.connect(self._on_ball_heatmap)
         self.worker.footwork_heatmap_ready.connect(self._on_footwork_heatmap)
-        self.worker.status_update.connect(self._log)
+        self.worker.report_ready.connect(self._on_report_ready)
         self.worker.set_source(source, mode)
-        self.worker.start()
+        # 视频模式：先显示第一帧，等标定完成后再开始推理
+        if mode == "video":
+            self.worker.wait_calibration = True
+            self.worker._calibration_done.clear()
+            self.worker.start()
+            self.start_calibration()  # 自动进入标定状态
+        else:
+            self.worker.start()
 
     def stop_inference(self):
         if self.worker and self.worker.isRunning():
@@ -602,7 +695,7 @@ class BadmintonGUI(QMainWindow):
         if self.worker:
             self.worker.ball_heatmap.reset()
             self.worker.footwork_heatmap.reset()
-            self.worker.ball_court_history.clear()
+            self.worker._last_trajectory_id = -1
             self.worker.foot_pixel_positions.clear()
         self._init_heatmap_displays()
         self._log("热力图已重置")
@@ -636,6 +729,9 @@ class BadmintonGUI(QMainWindow):
 
     def _on_footwork_heatmap(self, img):
         self._show_court(img, self.footwork_label)
+
+    def _on_report_ready(self, report):
+        self.report_text.setText(report)
 
     def _init_heatmap_displays(self):
         """初始化右侧球场底图"""

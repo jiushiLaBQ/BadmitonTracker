@@ -45,15 +45,14 @@ class AttentionPooling(nn.Module):
 
 class BiLSTMClassifier(nn.Module):
     """
-    深层双向BiLSTM + 全连接分类头
+    双向BiLSTM + 注意力池化 + 全连接分类头
 
     结构:
         Input (batch, seq_len, feature_dim)
         → BiLSTM Layer 1 (hidden_size) + BatchNorm + Dropout
         → BiLSTM Layer 2 (hidden_size) + BatchNorm + Dropout
-        → BiLSTM Layer 3 (hidden_size) + Dropout
-        → 取最后时间步输出
-        → FC (hidden_size*2 → fc_hidden) + ReLU + BatchNorm + Dropout
+        → 注意力池化
+        → FC (hidden_size*2 → fc_hidden) + ReLU + Dropout
         → FC (fc_hidden → num_classes)
     """
 
@@ -82,7 +81,7 @@ class BiLSTMClassifier(nn.Module):
                     hidden_size=self.hidden_size,
                     bidirectional=True,
                     batch_first=True,
-                    dropout=0  # 手动堆叠LSTM层，由外部Dropout控制
+                    dropout=0
                 )
             )
         self.lstm_layers = nn.ModuleList(lstm_layers)
@@ -96,33 +95,15 @@ class BiLSTMClassifier(nn.Module):
             nn.Dropout(self.dropout) for _ in range(self.num_layers)
         ])
 
-        # 新增：多头自注意力层，增强时序特征捕捉
-        embed_dim = self.hidden_size * 2
-        num_heads = config.ATTN_NUM_HEADS
-        assert embed_dim % num_heads == 0, \
-            f"embed_dim ({embed_dim}) 必须能被 num_heads ({num_heads}) 整除！"
-
-        self.self_attn = nn.MultiheadAttention(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            dropout=self.dropout,
-            batch_first=True
-        )
-        self.attn_norm = nn.LayerNorm(self.hidden_size * 2)
-
-        # 注意力池化层（替代均值池化）
+        # 注意力池化层
         self.attn_pool = AttentionPooling(self.hidden_size * 2)
 
-        # 全连接分类头
+        # 简化的全连接分类头（2层）
         self.classifier = nn.Sequential(
             nn.Linear(self.hidden_size * 2, self.fc_hidden),
             nn.ReLU(inplace=True),
-            nn.BatchNorm1d(self.fc_hidden) if self.use_bn else nn.Identity(),
             nn.Dropout(self.dropout),
-            nn.Linear(self.fc_hidden, self.fc_hidden // 2),
-            nn.ReLU(inplace=True),
-            nn.Dropout(self.dropout / 2),
-            nn.Linear(self.fc_hidden // 2, self.num_classes)
+            nn.Linear(self.fc_hidden, self.num_classes)
         )
 
         # 权重初始化
@@ -165,11 +146,6 @@ class BiLSTMClassifier(nn.Module):
                 x = x.permute(0, 2, 1)  # (batch, seq_len, hidden*2)
 
             x = self.lstm_dropouts[i](x)
-
-        # 新增：自注意力模块 + 残差连接
-        attn_input = x
-        attn_output, _ = self.self_attn(attn_input, attn_input, attn_input)
-        x = self.attn_norm(attn_input + attn_output) # 残差连接
 
         # 注意力池化（学习哪些帧对分类最重要）
         x, attn_weights = self.attn_pool(x)  # (batch, hidden*2), (batch, seq_len)

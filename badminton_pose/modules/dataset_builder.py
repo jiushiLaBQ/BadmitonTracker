@@ -182,12 +182,14 @@ class DatasetBuilder:
 
         print(f"\n特征标准化完成: mean≈{scaler.mean_.mean():.4f}, std≈{scaler.scale_.mean():.4f}")
 
-        # 保存
+        # 保存（包含scaler供推理时使用）
         dataset = {
             'X_train': X_train, 'y_train': y_train,
             'X_val': X_val,     'y_val': y_val,
             'X_test': X_test,   'y_test': y_test,
             'class_names': original_class_names,
+            'scaler_mean': scaler.mean_.copy(),
+            'scaler_scale': scaler.scale_.copy(),
         }
 
         save_path = os.path.join(output_dir, 'dataset.pt')

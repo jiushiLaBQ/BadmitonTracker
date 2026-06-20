@@ -155,6 +155,7 @@ class Preprocessor:
         全局坐标归一化：
         1. 以躯干中心为原点平移（消除位置影响）
         2. 以躯干长度为基准缩放（消除尺度影响）
+        跳过零值关键点（历史数据中低置信度点被置零的情况）
 
         Args:
             keypoints_seq: (T, 17, 3)
@@ -170,21 +171,39 @@ class Preprocessor:
         for t in range(T):
             frame_coords = coords[t]  # (17, 2)
 
-            # 躯干中心 = 左肩(5)和右肩(6)的中点
-            left_shoulder = frame_coords[5]
-            right_shoulder = frame_coords[6]
-            left_hip = frame_coords[11]
-            right_hip = frame_coords[12]
+            # 躯干中心：用有效（非零）的肩和髋计算
+            ref_indices = [5, 6, 11, 12]  # 左肩、右肩、左髋、右髋
+            ref_points = []
+            for idx in ref_indices:
+                if frame_coords[idx, 0] != 0 or frame_coords[idx, 1] != 0:
+                    ref_points.append(frame_coords[idx])
 
-            shoulder_center = (left_shoulder + right_shoulder) / 2.0
-            hip_center = (left_hip + right_hip) / 2.0
-            body_center = (shoulder_center + hip_center) / 2.0
+            if len(ref_points) >= 2:
+                ref_points = np.array(ref_points)
+                body_center = ref_points.mean(axis=0)
+            else:
+                # 所有参考点都为零，用全部非零点的中心
+                nonzero = frame_coords[(frame_coords[:, 0] != 0) | (frame_coords[:, 1] != 0)]
+                if len(nonzero) > 0:
+                    body_center = nonzero.mean(axis=0)
+                else:
+                    body_center = np.array([0.0, 0.0])
 
             # 平移：以躯干中心为原点
             centered = frame_coords - body_center
 
-            # 缩放：以躯干长度为基准
-            torso_length = np.linalg.norm(shoulder_center - hip_center)
+            # 缩放：以躯干长度为基准（用有效点计算）
+            shoulder_pts = [frame_coords[i] for i in [5, 6]
+                           if frame_coords[i, 0] != 0 or frame_coords[i, 1] != 0]
+            hip_pts = [frame_coords[i] for i in [11, 12]
+                      if frame_coords[i, 0] != 0 or frame_coords[i, 1] != 0]
+
+            torso_length = 0.0
+            if len(shoulder_pts) >= 1 and len(hip_pts) >= 1:
+                sc = np.array(shoulder_pts).mean(axis=0)
+                hc = np.array(hip_pts).mean(axis=0)
+                torso_length = np.linalg.norm(sc - hc)
+
             if torso_length > 1e-6:
                 centered = centered / torso_length
 

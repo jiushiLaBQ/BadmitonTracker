@@ -128,8 +128,8 @@ class KeypointExtractor:
                 best_idx = np.argmax(avg_conf)
             kpts = kpts_data[best_idx]
 
-        # 过滤低置信度关键点
-        kpts[kpts[:, 2] < config.PERSON_CONF, :2] = 0
+        # 不再将低置信度关键点坐标置零（置零会污染下游归一化和特征计算）
+        # 低置信度点保留原始坐标，由preprocessor的平滑和异常检测处理
 
         return kpts
 

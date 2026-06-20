@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鹰眼智析 - 基于多模态AI的羽毛球战术分析系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans SC', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            200: '#bfdbfe',
+                            300: '#93c5fd',
+                            400: '#60a5fa',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            800: '#1e40af',
+                            900: '#1e3a8a',
+                            950: '#172554',
+                        },
+                        accent: {
+                            cyan: '#06b6d4',
+                            teal: '#14b8a6',
+                        }
+                    },
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'bounce-slow': 'bounce 3s infinite',
+                        'slide-up': 'slideUp 0.8s ease-out forwards',
+                        'fade-in': 'fadeIn 1s ease-out forwards',
+                        'shuttle': 'shuttle 3s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-20px)' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(40px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' },
+                        },
+                        shuttle: {
+                            '0%, 100%': { transform: 'translateX(-10px) rotate(-5deg)' },
+                            '50%': { transform: 'translateX(10px) rotate(5deg)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-card-light {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 50%, #14b8a6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0c4a6e 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-bg::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            opacity: 0.5;
+        }
+
+        .court-pattern {
+            background-image: 
+                linear-gradient(90deg, rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+                linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .tech-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(59, 130, 246, 0.2);
+        }
+
+        .feature-icon {
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-blur {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+        }
+
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #3b82f6, transparent);
+        }
+
+        .stat-number {
+            font-variant-numeric: tabular-nums;
+        }
+
+        .scroll-reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.8s ease-out;
+        }
+
+        .scroll-reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .shuttle-icon {
+            display: inline-block;
+            animation: shuttle 3s ease-in-out infinite;
+        }
+
+        @keyframes shuttle {
+            0%, 100% { transform: translateX(-5px) rotate(-3deg); }
+            50% { transform: translateX(5px) rotate(3deg); }
+        }
+
+        .heatmap-demo {
+            background: radial-gradient(circle at 30% 70%, rgba(239, 68, 68, 0.6) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 30%, rgba(59, 130, 246, 0.6) 0%, transparent 50%),
+                        radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.4) 0%, transparent 60%);
+        }
+
+        .trajectory-line {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: drawLine 2s ease-out forwards;
+        }
+
+        @keyframes drawLine {
+            to { stroke-dashoffset: 0; }
+        }
+
+        .court-svg {
+            filter: drop-shadow(0 4px 20px rgba(59, 130, 246, 0.3));
+        }
+    </style>
+<base target="_blank">
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 nav-blur border-b border-white/10">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-accent-cyan flex items-center justify-center">
+                    <i class="fas fa-eye text-white text-lg"></i>
+                </div>
+                <span class="text-xl font-bold text-white tracking-wide">鹰眼智析</span>
+            </div>
+            <div class="hidden md:flex items-center gap-8">
+                <a href="#overview" class="text-slate-300 hover:text-white transition-colors text-sm font-medium">系统概览</a>
+                <a href="#technology" class="text-slate-300 hover:text-white transition-colors text-sm font-medium">核心技术</a>
+                <a href="#features" class="text-slate-300 hover:text-white transition-colors text-sm font-medium">功能模块</a>
+                <a href="#value" class="text-slate-300 hover:text-white transition-colors text-sm font-medium">价值前景</a>
+            </div>
+            <a href="#app" class="px-5 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-sm font-medium transition-all shadow-lg shadow-brand-500/30">
+                立即体验
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-bg min-h-screen flex items-center relative pt-20">
+        <!-- Floating Elements -->
+        <div class="absolute top-20 right-20 w-72 h-72 bg-brand-500/20 rounded-full blur-3xl animate-pulse-slow"></div>
+        <div class="absolute bottom-20 left-20 w-96 h-96 bg-accent-cyan/10 rounded-full blur-3xl animate-pulse-slow" style="animation-delay: 2s;"></div>
+
+        <div class="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 items-center relative z-10">
+            <div class="space-y-8">
+                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20 text-brand-300 text-sm font-medium">
+                    <span class="w-2 h-2 rounded-full bg-accent-teal animate-pulse"></span>
+                    项目展示
+                </div>
+
+                <h1 class="text-5xl md:text-6xl lg:text-7xl font-black text-white leading-tight">
+                    鹰眼<span class="gradient-text">智析</span>
+                </h1>
+
+                <p class="text-xl md:text-2xl text-slate-300 font-light leading-relaxed">
+                    基于多模态AI的羽毛球<br class="hidden md:block">战术分析系统
+                </p>
+
+                <p class="text-slate-400 text-lg leading-relaxed max-w-xl">
+                    将任何普通摄像机拍摄的比赛视频，转化为蕴含丰富战术信息的"活数据"。让前沿AI技术真正服务于体育训练和大众健康。
+                </p>
+
+                <div class="flex flex-wrap gap-4">
+                    <a href="#app" class="px-8 py-4 bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white rounded-xl font-semibold text-lg transition-all shadow-xl shadow-brand-500/30 hover:shadow-brand-500/50 transform hover:-translate-y-1">
+                        <i class="fas fa-play-circle mr-2"></i>开始分析
+                    </a>
+                    <button class="px-8 py-4 bg-white/10 hover:bg-white/20 text-white border border-white/30 rounded-xl font-semibold text-lg transition-all backdrop-blur-sm">
+                        <i class="fas fa-file-alt mr-2"></i>查看报告
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-6 pt-4">
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-white stat-number">95%</div>
+                        <div class="text-sm text-slate-400">追踪精度</div>
+                    </div>
+                    <div class="w-px h-12 bg-white/20"></div>
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-white stat-number">17</div>
+                        <div class="text-sm text-slate-400">骨骼关键点</div>
+                    </div>
+                    <div class="w-px h-12 bg-white/20"></div>
+                    <div class="text-center">
+                        <div class="text-3xl font-bold text-white stat-number">4+</div>
+                        <div class="text-sm text-slate-400">动作识别类型</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="relative">
+                <!-- Main Visual - Court Analysis Dashboard -->
+                <div class="relative bg-slate-900/80 rounded-2xl p-6 border border-white/10 shadow-2xl backdrop-blur-xl">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-6">
+                        <div class="flex items-center gap-3">
+                            <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                            <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                            <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                        </div>
+                        <div class="text-slate-400 text-sm font-mono">LIVE ANALYSIS</div>
+                    </div>
+
+                    <!-- Court Visualization -->
+                    <div class="relative bg-brand-950/50 rounded-xl overflow-hidden aspect-video mb-6">
+                        <!-- Court Lines -->
+                        <svg class="absolute inset-0 w-full h-full court-svg" viewBox="0 0 400 225">
+                            <!-- Court Outline -->
+                            <rect x="20" y="20" width="360" height="185" fill="none" stroke="#3b82f6" stroke-width="2" opacity="0.6"/>
+                            <line x1="200" y1="20" x2="200" y2="205" stroke="#3b82f6" stroke-width="1.5" opacity="0.4"/>
+                            <line x1="20" y1="112" x2="380" y2="112" stroke="#3b82f6" stroke-width="1.5" opacity="0.4"/>
+                            <line x1="90" y1="20" x2="90" y2="205" stroke="#3b82f6" stroke-width="1" opacity="0.3"/>
+                            <line x1="310" y1="20" x2="310" y2="205" stroke="#3b82f6" stroke-width="1" opacity="0.3"/>
+
+                            <!-- Trajectory -->
+                            <path d="M 100 180 Q 150 80 250 100 T 320 40" fill="none" stroke="#06b6d4" stroke-width="3" class="trajectory-line" opacity="0.9"/>
+                            <circle cx="320" cy="40" r="5" fill="#06b6d4" class="animate-pulse"/>
+
+                            <!-- Player Positions -->
+                            <circle cx="100" cy="180" r="8" fill="#3b82f6" opacity="0.8">
+                                <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite"/>
+                            </circle>
+                            <circle cx="300" cy="50" r="8" fill="#ef4444" opacity="0.8">
+                                <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite" begin="1s"/>
+                            </circle>
+
+                            <!-- Skeleton Points -->
+                            <g opacity="0.6">
+                                <circle cx="100" cy="165" r="3" fill="#60a5fa"/>
+                                <line x1="100" y1="165" x2="100" y2="180" stroke="#60a5fa" stroke-width="1"/>
+                            </g>
+                        </svg>
+
+                        <!-- Labels -->
+                        <div class="absolute top-4 left-4 bg-black/60 px-3 py-1 rounded text-xs text-brand-300 font-mono">
+                            <i class="fas fa-video mr-1"></i>YOLOv8 Tracking
+                        </div>
+                        <div class="absolute bottom-4 right-4 bg-black/60 px-3 py-1 rounded text-xs text-accent-cyan font-mono">
+                            FPS: 60 <span class="shuttle-icon">🏸</span>
+                        </div>
+                    </div>
+
+                    <!-- Stats Row -->
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="bg-white/5 rounded-lg p-3 border border-white/10">
+                            <div class="text-xs text-slate-400 mb-1">球速</div>
+                            <div class="text-xl font-bold text-white">288 <span class="text-sm font-normal text-slate-400">km/h</span></div>
+                        </div>
+                        <div class="bg-white/5 rounded-lg p-3 border border-white/10">
+                            <div class="text-xs text-slate-400 mb-1">识别动作</div>
+                            <div class="text-xl font-bold text-accent-cyan">杀球</div>
+                        </div>
+                        <div class="bg-white/5 rounded-lg p-3 border border-white/10">
+                            <div class="text-xs text-slate-400 mb-1">置信度</div>
+                            <div class="text-xl font-bold text-brand-400">94.2%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Floating Badge -->
+                <div class="absolute -top-4 -right-4 bg-gradient-to-r from-brand-500 to-accent-cyan text-white px-4 py-2 rounded-xl shadow-lg animate-float">
+                    <i class="fas fa-bolt mr-1"></i> 实时分析中
+                </div>
+            </div>
+        </div>
+
+        <!-- Scroll Indicator -->
+        <div class="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/50 animate-bounce">
+            <i class="fas fa-chevron-down text-2xl"></i>
+        </div>
+    </section>
+
+    <!-- Overview Section -->
+    <section id="overview" class="py-24 bg-white relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-brand-950 to-transparent opacity-5"></div>
+
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 border border-brand-200 text-brand-600 text-sm font-medium mb-6">
+                    <i class="fas fa-bullseye"></i>
+                    系统定位
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
+                    打破<span class="gradient-text">数据鸿沟</span>
+                </h2>
+                <p class="text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
+                    顶级的运动数据分析系统往往价格高昂、操作复杂。我们让每一场普通的比赛、每一次日常的训练，都能被赋予专业级的战术视角。
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="scroll-reveal group p-8 rounded-2xl bg-gradient-to-br from-slate-50 to-white border border-slate-200 hover:border-brand-300 transition-all duration-300 hover:shadow-xl">
+                    <div class="w-14 h-14 rounded-xl bg-brand-100 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-video text-2xl text-brand-600"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-900 mb-3">普通视频输入</h3>
+                    <p class="text-slate-600 leading-relaxed">
+                        无需昂贵专业设备，任何普通摄像机或手机拍摄的比赛视频，均可作为系统输入源。
+                    </p>
+                </div>
+
+                <div class="scroll-reveal group p-8 rounded-2xl bg-gradient-to-br from-slate-50 to-white border border-slate-200 hover:border-brand-300 transition-all duration-300 hover:shadow-xl" style="transition-delay: 0.1s;">
+                    <div class="w-14 h-14 rounded-xl bg-accent-cyan/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-brain text-2xl text-accent-cyan"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-900 mb-3">AI 智能解析</h3>
+                    <p class="text-slate-600 leading-relaxed">
+                        融合YOLOv8、卡尔曼滤波、BiLSTM等前沿算法，自动提取球轨迹、运动员姿态和战术语义。
+                    </p>
+                </div>
+
+                <div class="scroll-reveal group p-8 rounded-2xl bg-gradient-to-br from-slate-50 to-white border border-slate-200 hover:border-brand-300 transition-all duration-300 hover:shadow-xl" style="transition-delay: 0.2s;">
+                    <div class="w-14 h-14 rounded-xl bg-accent-teal/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-chart-line text-2xl text-accent-teal"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-900 mb-3">专业战术报告</h3>
+                    <p class="text-slate-600 leading-relaxed">
+                        输出包含飞行轨迹、热力图、动作识别等维度的专业级战术分析报告，赋能训练决策。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- Core Technology Section -->
+    <section id="technology" class="py-24 bg-slate-50 relative">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 border border-brand-200 text-brand-600 text-sm font-medium mb-6">
+                    <i class="fas fa-microchip"></i>
+                    技术创新
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
+                    三大核心<span class="gradient-text">技术引擎</span>
+                </h2>
+                <p class="text-xl text-slate-600 max-w-3xl mx-auto">
+                    构建完整的感知-理解-分析闭环，赋予系统专业级战术分析能力
+                </p>
+            </div>
+
+            <!-- Tech Card 1: Dual Vision -->
+            <div class="scroll-reveal mb-12">
+                <div class="tech-card bg-white rounded-3xl p-8 md:p-12 border border-slate-200 shadow-lg transition-all duration-500">
+                    <div class="grid lg:grid-cols-2 gap-12 items-center">
+                        <div class="order-2 lg:order-1">
+                            <div class="flex items-center gap-3 mb-6">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-brand-500/30">
+                                    01
+                                </div>
+                                <span class="text-sm font-semibold text-brand-600 uppercase tracking-wider">感知层</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-slate-900 mb-4">精准的"双眼视觉"感知系统</h3>
+                            <p class="text-slate-600 text-lg leading-relaxed mb-6">
+                                创造性地融合两种前沿YOLOv8模型，赋予系统一双锐利的"AI眼睛"，实现稳定、精准的多目标追踪。
+                            </p>
+
+                            <div class="space-y-4">
+                                <div class="flex items-start gap-4 p-4 rounded-xl bg-brand-50/50 border border-brand-100">
+                                    <div class="w-10 h-10 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-feather-alt text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-semibold text-slate-900 mb-1">羽毛球追踪眼</h4>
+                                        <p class="text-sm text-slate-600">利用<strong class="text-brand-600">卡尔曼滤波算法</strong>优化YOLOv8检测，实现高速运动羽毛球的稳定平滑追踪，即使画面模糊或偶尔遮挡也能精准预测轨迹。</p>
+                                    </div>
+                                </div>
+
+                                <div class="flex items-start gap-4 p-4 rounded-xl bg-accent-cyan/5 border border-accent-cyan/20">
+                                    <div class="w-10 h-10 rounded-lg bg-accent-cyan flex items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-running text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-semibold text-slate-900 mb-1">运动员姿态眼</h4>
+                                        <p class="text-sm text-slate-600">采用<strong class="text-accent-cyan">YOLOv8-Pose模型</strong>，实时捕捉运动员全身<strong class="text-accent-cyan">17个关键骨骼点</strong>，为动作分析提供坚实数据基础。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="order-1 lg:order-2 relative">
+                            <div class="bg-slate-900 rounded-2xl p-6 shadow-2xl">
+                                <div class="flex items-center justify-between mb-4">
+                                    <span class="text-slate-400 text-sm font-mono">OBJECT DETECTION</span>
+                                    <div class="flex gap-2">
+                                        <span class="px-2 py-1 bg-brand-500/20 text-brand-400 text-xs rounded">YOLOv8</span>
+                                        <span class="px-2 py-1 bg-accent-cyan/20 text-accent-cyan text-xs rounded">Kalman</span>
+                                    </div>
+                                </div>
+
+                                <!-- Detection Visualization -->
+                                <div class="relative bg-slate-800 rounded-xl overflow-hidden aspect-video">
+                                    <div class="absolute inset-0 flex items-center justify-center">
+                                        <!-- Simulated detection boxes -->
+                                        <div class="absolute top-1/3 left-1/4 w-16 h-16 border-2 border-brand-400 rounded animate-pulse">
+                                            <span class="absolute -top-6 left-0 bg-brand-500 text-white text-xs px-2 py-0.5 rounded">shuttle</span>
+                                        </div>
+                                        <div class="absolute bottom-1/4 right-1/3 w-24 h-32 border-2 border-accent-cyan rounded">
+                                            <span class="absolute -top-6 left-0 bg-accent-cyan text-white text-xs px-2 py-0.5 rounded">player</span>
+                                            <!-- Skeleton overlay -->
+                                            <svg class="absolute inset-0 w-full h-full" viewBox="0 0 96 128">
+                                                <circle cx="48" cy="20" r="4" fill="#06b6d4"/>
+                                                <line x1="48" y1="20" x2="48" y2="50" stroke="#06b6d4" stroke-width="1.5"/>
+                                                <line x1="48" y1="35" x2="30" y2="25" stroke="#06b6d4" stroke-width="1"/>
+                                                <line x1="48" y1="35" x2="66" y2="25" stroke="#06b6d4" stroke-width="1"/>
+                                                <line x1="48" y1="50" x2="35" y2="75" stroke="#06b6d4" stroke-width="1.5"/>
+                                                <line x1="48" y1="50" x2="61" y2="75" stroke="#06b6d4" stroke-width="1.5"/>
+                                                <line x1="35" y1="75" x2="30" y2="110" stroke="#06b6d4" stroke-width="1"/>
+                                                <line x1="61" y1="75" x2="66" y2="110" stroke="#06b6d4" stroke-width="1"/>
+                                            </svg>
+                                        </div>
+                                    </div>
+
+                                    <!-- Tracking trail -->
+                                    <svg class="absolute inset-0 w-full h-full pointer-events-none">
+                                        <path d="M 120 80 Q 160 60 200 70" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4,4" opacity="0.6"/>
+                                        <circle cx="200" cy="70" r="3" fill="#3b82f6">
+                                            <animate attributeName="r" values="3;5;3" dur="1.5s" repeatCount="indefinite"/>
+                                        </circle>
+                                    </svg>
+                                </div>
+
+                                <div class="mt-4 grid grid-cols-3 gap-3 text-center">
+                                    <div class="bg-slate-800 rounded-lg p-2">
+                                        <div class="text-brand-400 font-bold">60 FPS</div>
+                                        <div class="text-slate-500 text-xs">实时帧率</div>
+                                    </div>
+                                    <div class="bg-slate-800 rounded-lg p-2">
+                                        <div class="text-accent-cyan font-bold">17 pts</div>
+                                        <div class="text-slate-500 text-xs">骨骼关键点</div>
+                                    </div>
+                                    <div class="bg-slate-800 rounded-lg p-2">
+                                        <div class="text-accent-teal font-bold">&lt;5ms</div>
+                                        <div class="text-slate-500 text-xs">延迟</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tech Card 2: God's Eye View -->
+            <div class="scroll-reveal mb-12">
+                <div class="tech-card bg-white rounded-3xl p-8 md:p-12 border border-slate-200 shadow-lg transition-all duration-500">
+                    <div class="grid lg:grid-cols-2 gap-12 items-center">
+                        <div class="relative">
+                            <div class="bg-slate-900 rounded-2xl p-6 shadow-2xl">
+                                <div class="flex items-center justify-between mb-4">
+                                    <span class="text-slate-400 text-sm font-mono">TACTICAL SAND TABLE</span>
+                                    <span class="px-2 py-1 bg-accent-teal/20 text-accent-teal text-xs rounded">OpenCV</span>
+                                </div>
+
+                                <!-- Dual View Dashboard -->
+                                <div class="grid grid-cols-2 gap-4">
+                                    <!-- Left: Trajectory -->
+                                    <div class="bg-slate-800 rounded-xl p-4 aspect-square relative overflow-hidden">
+                                        <div class="absolute top-2 left-2 text-xs text-slate-400">飞行轨迹</div>
+                                        <svg class="w-full h-full" viewBox="0 0 100 100">
+                                            <!-- Court -->
+                                            <rect x="10" y="10" width="80" height="80" fill="none" stroke="#334155" stroke-width="1"/>
+                                            <line x1="50" y1="10" x2="50" y2="90" stroke="#334155" stroke-width="0.5"/>
+                                            <line x1="10" y1="50" x2="90" y2="50" stroke="#334155" stroke-width="0.5"/>
+
+                                            <!-- Trajectory -->
+                                            <path d="M 20 80 Q 40 30 60 50 T 80 20" fill="none" stroke="#06b6d4" stroke-width="2" opacity="0.8"/>
+                                            <circle cx="80" cy="20" r="3" fill="#06b6d4" class="animate-pulse"/>
+
+                                            <!-- Landing points -->
+                                            <circle cx="35" cy="65" r="2" fill="#3b82f6" opacity="0.6"/>
+                                            <circle cx="55" cy="45" r="2" fill="#3b82f6" opacity="0.6"/>
+                                            <circle cx="75" cy="25" r="2" fill="#ef4444" opacity="0.8"/>
+                                        </svg>
+                                    </div>
+
+                                    <!-- Right: Heatmap -->
+                                    <div class="bg-slate-800 rounded-xl p-4 aspect-square relative overflow-hidden">
+                                        <div class="absolute top-2 left-2 text-xs text-slate-400 z-10">跑动热力</div>
+                                        <div class="absolute inset-4 heatmap-demo rounded-lg opacity-80"></div>
+                                        <svg class="w-full h-full relative z-10" viewBox="0 0 100 100">
+                                            <rect x="10" y="10" width="80" height="80" fill="none" stroke="#334155" stroke-width="1"/>
+                                            <line x1="50" y1="10" x2="50" y2="90" stroke="#334155" stroke-width="0.5"/>
+                                            <line x1="10" y1="50" x2="90" y2="50" stroke="#334155" stroke-width="0.5"/>
+                                        </svg>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 flex items-center justify-between text-xs text-slate-400">
+                                    <span><i class="fas fa-expand mr-1"></i>透视变换</span>
+                                    <span><i class="fas fa-sync mr-1"></i>实时同步</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex items-center gap-3 mb-6">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-accent-cyan to-accent-teal flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-accent-cyan/30">
+                                    02
+                                </div>
+                                <span class="text-sm font-semibold text-accent-cyan uppercase tracking-wider">理解层</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-slate-900 mb-4">创新的"上帝视角"战术复盘</h3>
+                            <p class="text-slate-600 text-lg leading-relaxed mb-6">
+                                利用<strong class="text-accent-cyan">OpenCV透视变换技术</strong>，将倾斜的动态画面实时转换为标准平面的2D战术沙盘，让战术分析一目了然。
+                            </p>
+
+                            <div class="space-y-4">
+                                <div class="flex items-start gap-4 p-4 rounded-xl bg-brand-50/50 border border-brand-100">
+                                    <div class="w-10 h-10 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-route text-white text-sm"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-semibold text-slate-900 mb-1">飞行轨迹视图</h4>
+                                        <p class="text-sm text-slate-600">清晰绘制羽毛球完整飞行轨迹和精准落点，每一次攻防转换、每一个球路变化都一目了然。</p>
+                                    </div>
+                                </div>
+
+                                <div class="flex items-start gap-4 p-4 rounded-xl bg-accent-teal/5 border border-accent-teal/20">
+                                    <div class="w-10 h-10 rounded-lg bg-accent-teal flex items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-fire text-white text-sm"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-semibold text-slate-900 mb-1">跑动热力视图</h4>
+                                        <p class="text-sm text-slate-600">根据脚部移动实时生成跑动覆盖热力图，直观展示场上活动范围、体能消耗和防守习惯。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tech Card 3: AI Brain -->
+            <div class="scroll-reveal">
+                <div class="tech-card bg-white rounded-3xl p-8 md:p-12 border border-slate-200 shadow-lg transition-all duration-500">
+                    <div class="grid lg:grid-cols-2 gap-12 items-center">
+                        <div class="order-2 lg:order-1">
+                            <div class="flex items-center gap-3 mb-6">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-accent-teal to-brand-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-accent-teal/30">
+                                    03
+                                </div>
+                                <span class="text-sm font-semibold text-accent-teal uppercase tracking-wider">认知层</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-slate-900 mb-4">深度的"专家级"动作识别大脑</h3>
+                            <p class="text-slate-600 text-lg leading-relaxed mb-6">
+                                构建<strong class="text-accent-teal">BiLSTM双向长短期记忆网络</strong>，学习并理解连续的运动员骨架姿态变化，像经验丰富的教练一样自动识别技术动作。
+                            </p>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="p-4 rounded-xl bg-gradient-to-br from-red-50 to-red-100/50 border border-red-200 text-center">
+                                    <i class="fas fa-bolt text-2xl text-red-500 mb-2"></i>
+                                    <div class="font-bold text-slate-900">杀球</div>
+                                    <div class="text-xs text-slate-500 mt-1">Smash</div>
+                                </div>
+                                <div class="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 text-center">
+                                    <i class="fas fa-arrow-up text-2xl text-blue-500 mb-2"></i>
+                                    <div class="font-bold text-slate-900">高远球</div>
+                                    <div class="text-xs text-slate-500 mt-1">Clear</div>
+                                </div>
+                                <div class="p-4 rounded-xl bg-gradient-to-br from-amber-50 to-amber-100/50 border border-amber-200 text-center">
+                                    <i class="fas fa-compress-alt text-2xl text-amber-500 mb-2"></i>
+                                    <div class="font-bold text-slate-900">吊球</div>
+                                    <div class="text-xs text-slate-500 mt-1">Drop Shot</div>
+                                </div>
+                                <div class="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 border border-green-200 text-center">
+                                    <i class="fas fa-hand-point-up text-2xl text-green-500 mb-2"></i>
+                                    <div class="font-bold text-slate-900">挑球</div>
+                                    <div class="text-xs text-slate-500 mt-1">Lift</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="order-1 lg:order-2 relative">
+                            <div class="bg-slate-900 rounded-2xl p-6 shadow-2xl">
+                                <div class="flex items-center justify-between mb-4">
+                                    <span class="text-slate-400 text-sm font-mono">BiLSTM NEURAL NETWORK</span>
+                                    <div class="flex gap-2">
+                                        <span class="px-2 py-1 bg-accent-teal/20 text-accent-teal text-xs rounded">BiLSTM</span>
+                                        <span class="px-2 py-1 bg-brand-500/20 text-brand-400 text-xs rounded">Action</span>
+                                    </div>
+                                </div>
+
+                                <!-- Neural Network Visualization -->
+                                <div class="bg-slate-800 rounded-xl p-6 aspect-video flex items-center justify-center">
+                                    <svg width="300" height="180" viewBox="0 0 300 180">
+                                        <!-- Input Layer -->
+                                        <g transform="translate(30, 20)">
+                                            <text x="0" y="-10" fill="#94a3b8" font-size="10" text-anchor="middle">Input</text>
+                                            <circle cx="0" cy="0" r="8" fill="#3b82f6" opacity="0.8"/>
+                                            <circle cx="0" cy="35" r="8" fill="#3b82f6" opacity="0.8"/>
+                                            <circle cx="0" cy="70" r="8" fill="#3b82f6" opacity="0.8"/>
+                                            <circle cx="0" cy="105" r="8" fill="#3b82f6" opacity="0.8"/>
+                                            <circle cx="0" cy="140" r="8" fill="#3b82f6" opacity="0.8"/>
+                                        </g>
+
+                                        <!-- Hidden Layer 1 -->
+                                        <g transform="translate(110, 20)">
+                                            <text x="0" y="-10" fill="#94a3b8" font-size="10" text-anchor="middle">LSTM →</text>
+                                            <circle cx="0" cy="0" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="35" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="70" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="105" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="140" r="8" fill="#06b6d4" opacity="0.8"/>
+                                        </g>
+
+                                        <!-- Hidden Layer 2 -->
+                                        <g transform="translate(190, 20)">
+                                            <text x="0" y="-10" fill="#94a3b8" font-size="10" text-anchor="middle">← LSTM</text>
+                                            <circle cx="0" cy="0" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="35" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="70" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="105" r="8" fill="#06b6d4" opacity="0.8"/>
+                                            <circle cx="0" cy="140" r="8" fill="#06b6d4" opacity="0.8"/>
+                                        </g>
+
+                                        <!-- Output Layer -->
+                                        <g transform="translate(270, 55)">
+                                            <text x="0" y="-10" fill="#94a3b8" font-size="10" text-anchor="middle">Output</text>
+                                            <circle cx="0" cy="0" r="10" fill="#14b8a6" opacity="0.9"/>
+                                            <circle cx="0" cy="50" r="10" fill="#14b8a6" opacity="0.9"/>
+                                        </g>
+
+                                        <!-- Connections -->
+                                        <g stroke="#475569" stroke-width="0.5" opacity="0.3">
+                                            <line x1="38" y1="20" x2="102" y2="20"/>
+                                            <line x1="38" y1="20" x2="102" y2="55"/>
+                                            <line x1="38" y1="55" x2="102" y2="20"/>
+                                            <line x1="38" y1="55" x2="102" y2="55"/>
+                                            <line x1="38" y1="55" x2="102" y2="90"/>
+                                            <line x1="38" y1="90" x2="102" y2="55"/>
+                                            <line x1="38" y1="90" x2="102" y2="90"/>
+                                            <line x1="38" y1="90" x2="102" y2="125"/>
+                                            <line x1="38" y1="125" x2="102" y2="90"/>
+                                            <line x1="38" y1="125" x2="102" y2="125"/>
+                                            <line x1="38" y1="125" x2="102" y2="160"/>
+                                            <line x1="38" y1="160" x2="102" y2="125"/>
+                                            <line x1="38" y1="160" x2="102" y2="160"/>
+
+                                            <line x1="118" y1="20" x2="182" y2="20"/>
+                                            <line x1="118" y1="55" x2="182" y2="55"/>
+                                            <line x1="118" y1="90" x2="182" y2="90"/>
+                                            <line x1="118" y1="125" x2="182" y2="125"/>
+                                            <line x1="118" y1="160" x2="182" y2="160"/>
+
+                                            <line x1="198" y1="20" x2="262" y2="55"/>
+                                            <line x1="198" y1="55" x2="262" y2="55"/>
+                                            <line x1="198" y1="90" x2="262" y2="55"/>
+                                            <line x1="198" y1="90" x2="262" y2="105"/>
+                                            <line x1="198" y1="125" x2="262" y2="105"/>
+                                            <line x1="198" y1="160" x2="262" y2="105"/>
+                                        </g>
+
+                                        <!-- Labels -->
+                                        <text x="270" y="58" fill="white" font-size="8" text-anchor="middle" font-weight="bold">杀球</text>
+                                        <text x="270" y="108" fill="white" font-size="8" text-anchor="middle" font-weight="bold">吊球</text>
+                                    </svg>
+                                </div>
+
+                                <div class="mt-4 bg-slate-800 rounded-lg p-3">
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="text-slate-400">当前识别:</span>
+                                        <span class="text-accent-teal font-bold">杀球 (Smash)</span>
+                                    </div>
+                                    <div class="mt-2 w-full bg-slate-700 rounded-full h-2">
+                                        <div class="bg-gradient-to-r from-accent-teal to-brand-500 h-2 rounded-full" style="width: 94%"></div>
+                                    </div>
+                                    <div class="flex justify-between text-xs text-slate-500 mt-1">
+                                        <span>置信度</span>
+                                        <span>94.2%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- Features Showcase -->
+    <section id="features" class="py-24 bg-white relative overflow-hidden">
+        <div class="absolute inset-0 court-pattern opacity-30"></div>
+
+        <div class="max-w-7xl mx-auto px-6 relative z-10">
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 border border-brand-200 text-brand-600 text-sm font-medium mb-6">
+                    <i class="fas fa-layer-group"></i>
+                    功能全景
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
+                    完整分析<span class="gradient-text">闭环</span>
+                </h2>
+                <p class="text-xl text-slate-600 max-w-3xl mx-auto">
+                    从视频输入到战术报告，一站式解决运动分析需求
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="scroll-reveal group relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 p-8 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+                    <div class="relative z-10">
+                        <div class="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center mb-6 backdrop-blur-sm">
+                            <i class="fas fa-upload text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3">视频上传</h3>
+                        <p class="text-brand-100 text-sm leading-relaxed">
+                            支持多种格式视频文件上传，自动进行帧提取和预处理，适配各种拍摄角度。
+                        </p>
+                    </div>
+                </div>
+
+                <div class="scroll-reveal group relative overflow-hidden rounded-2xl bg-gradient-to-br from-accent-cyan to-brand-600 p-8 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2" style="transition-delay: 0.1s;">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+                    <div class="relative z-10">
+                        <div class="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center mb-6 backdrop-blur-sm">
+                            <i class="fas fa-search-location text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3">智能追踪</h3>
+                        <p class="text-accent-100 text-sm leading-relaxed">
+                            双YOLOv8模型并行检测，卡尔曼滤波优化，实现球与运动员的稳定追踪。
+                        </p>
+                    </div>
+                </div>
+
+                <div class="scroll-reveal group relative overflow-hidden rounded-2xl bg-gradient-to-br from-accent-teal to-cyan-600 p-8 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2" style="transition-delay: 0.2s;">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+                    <div class="relative z-10">
+                        <div class="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center mb-6 backdrop-blur-sm">
+                            <i class="fas fa-project-diagram text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3">战术解析</h3>
+                        <p class="text-teal-100 text-sm leading-relaxed">
+                            透视变换生成2D沙盘，BiLSTM识别技术动作，输出结构化战术数据。
+                        </p>
+                    </div>
+                </div>
+
+                <div class="scroll-reveal group relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 p-8 text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:-translate-y-2" style="transition-delay: 0.3s;">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+                    <div class="relative z-10">
+                        <div class="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center mb-6 backdrop-blur-sm">
+                            <i class="fas fa-file-contract text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3">报告生成</h3>
+                        <p class="text-slate-300 text-sm leading-relaxed">
+                            自动生成包含轨迹图、热力图、动作统计的专业级PDF/HTML战术分析报告。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- Value & Vision Section -->
+    <section id="value" class="py-24 bg-slate-50 relative">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 border border-brand-200 text-brand-600 text-sm font-medium mb-6">
+                    <i class="fas fa-rocket"></i>
+                    价值前景
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
+                    赋能<span class="gradient-text">每一个人</span>
+                </h2>
+                <p class="text-xl text-slate-600 max-w-3xl mx-auto">
+                    科技的力量在于赋能，让前沿AI技术走出实验室，真正服务于体育训练和大众健康
+                </p>
+            </div>
+
+            <div class="grid lg:grid-cols-3 gap-8">
+                <!-- For Athletes -->
+                <div class="scroll-reveal bg-white rounded-3xl p-8 border border-slate-200 shadow-lg hover:shadow-xl transition-all duration-300">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center mb-6 shadow-lg shadow-brand-500/20">
+                        <i class="fas fa-user-tie text-2xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-slate-900 mb-4">运动员与教练</h3>
+                    <p class="text-slate-600 leading-relaxed mb-6">
+                        一个"不知疲倦"的战术分析师。帮助球员高效复盘，量化分析对手的球路习惯和自己的跑动弱点，制定更具针对性的训练方案。
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-brand-500"></i>
+                            对手球路习惯分析
+                        </li>
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-brand-500"></i>
+                            个人跑动弱点诊断
+                        </li>
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-brand-500"></i>
+                            训练效果量化评估
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- For Enthusiasts -->
+                <div class="scroll-reveal bg-white rounded-3xl p-8 border border-slate-200 shadow-lg hover:shadow-xl transition-all duration-300" style="transition-delay: 0.1s;">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-cyan to-brand-500 flex items-center justify-center mb-6 shadow-lg shadow-accent-cyan/20">
+                        <i class="fas fa-users text-2xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-slate-900 mb-4">广大爱好者</h3>
+                    <p class="text-slate-600 leading-relaxed mb-6">
+                        极大降低专业运动分析的门槛。任何羽毛球爱好者都可以用手机录下自己的比赛，通过系统获得一份专业报告，享受科技带来的进步乐趣。
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-accent-cyan"></i>
+                            手机拍摄即可分析
+                        </li>
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-accent-cyan"></i>
+                            个人技术动作诊断
+                        </li>
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-accent-cyan"></i>
+                            可视化进步轨迹
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- For Future -->
+                <div class="scroll-reveal bg-white rounded-3xl p-8 border border-slate-200 shadow-lg hover:shadow-xl transition-all duration-300" style="transition-delay: 0.2s;">
+                    <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-teal to-cyan-500 flex items-center justify-center mb-6 shadow-lg shadow-accent-teal/20">
+                        <i class="fas fa-globe text-2xl text-white"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-slate-900 mb-4">未来拓展</h3>
+                    <p class="text-slate-600 leading-relaxed mb-6">
+                        核心算法具备极强的可扩展性，未来可快速迁移到网球、乒乓球等隔网运动，甚至篮球、足球等团队项目的战术分析。
+                    </p>
+                    <ul class="space-y-3">
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-accent-teal"></i>
+                            多项目快速迁移
+                        </li>
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-accent-teal"></i>
+                            团队战术分析
+                        </li>
+                        <li class="flex items-center gap-3 text-sm text-slate-600">
+                            <i class="fas fa-check-circle text-accent-teal"></i>
+                            广阔市场前景
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Vision Banner -->
+            <div class="scroll-reveal mt-16 relative overflow-hidden rounded-3xl bg-gradient-to-r from-brand-900 via-brand-800 to-slate-900 p-12 text-center shadow-2xl">
+                <div class="absolute inset-0 opacity-20">
+                    <div class="absolute top-0 left-1/4 w-64 h-64 bg-brand-500 rounded-full blur-3xl"></div>
+                    <div class="absolute bottom-0 right-1/4 w-64 h-64 bg-accent-cyan rounded-full blur-3xl"></div>
+                </div>
+                <div class="relative z-10">
+                    <i class="fas fa-quote-left text-4xl text-brand-400/30 mb-6"></i>
+                    <h3 class="text-3xl md:text-4xl font-bold text-white mb-6">
+                        让每一滴在赛场上挥洒的汗水<br>都能闪耀出<span class="text-accent-cyan">数据的光芒</span>
+                    </h3>
+                    <p class="text-slate-300 text-lg max-w-2xl mx-auto">
+                        我们相信，科技的力量在于赋能。"鹰眼智析"的目标，就是让前沿的AI技术走出实验室，真正服务于体育训练和大众健康。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- App Section -->
+    <section id="app" class="py-24 bg-slate-900/95 text-white relative hero-bg">
+        <div class="max-w-5xl mx-auto px-6 relative z-10">
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20 text-brand-300 text-sm font-medium mb-6">
+                    <i class="fas fa-cogs"></i>
+                    交互式分析
+                </div>
+                <h2 class="text-4xl md:text-5xl font-bold text-white mb-6">
+                    上传视频，即刻<span class="gradient-text">体验</span>
+                </h2>
+                <p class="text-xl text-slate-300 max-w-3xl mx-auto">
+                    将您的比赛视频拖拽至下方区域，或点击上传，鹰眼智析将为您生成专业分析报告。
+                </p>
+            </div>
+
+            <div class="bg-slate-900/80 rounded-2xl p-6 border border-white/10 shadow-2xl backdrop-blur-xl">
+                <!-- Video Upload Container -->
+                <div id="video-upload-container" class="relative border-4 border-dashed border-slate-600 hover:border-brand-500 transition-all duration-300 rounded-2xl p-12 text-center cursor-pointer">
+                    <div class="flex flex-col items-center justify-center space-y-6">
+                        <i class="fas fa-cloud-upload-alt text-6xl text-slate-500"></i>
+                        <p class="text-xl font-semibold text-slate-300">拖拽视频文件到这里</p>
+                        <p class="text-slate-400">或</p>
+                        <button id="upload-button" class="px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-lg font-medium transition-all shadow-lg shadow-brand-500/30">
+                            选择文件
+                        </button>
+                        <input type="file" id="video-input" class="hidden" accept="video/*">
+                        <p class="text-xs text-slate-500">支持 MP4, MOV, AVI 等格式</p>
+                    </div>
+                </div>
+
+                <!-- Video Player and Analysis -->
+                <div id="video-player-container" class="hidden grid lg:grid-cols-3 gap-8">
+                    <!-- Video Player -->
+                    <div class="lg:col-span-2 relative rounded-xl overflow-hidden bg-black">
+                        <video id="main-video" class="w-full h-full" controls></video>
+                        <div id="processing-overlay" class="absolute inset-0 bg-black/70 flex-col items-center justify-center space-y-4" style="display: none;">
+                            <div class="w-16 h-16 border-4 border-dashed border-brand-500 rounded-full animate-spin"></div>
+                            <p class="text-lg font-semibold text-white">AI分析中，请稍候...</p>
+                        </div>
+                    </div>
+
+                    <!-- Analysis Results -->
+                    <div class="space-y-6">
+                        <h3 class="text-2xl font-bold text-white border-b-2 border-brand-500 pb-2">实时分析结果</h3>
+                        
+                        <!-- Placeholder -->
+                        <div id="analysis-results-placeholder" class="space-y-4 animate-pulse">
+                            <div class="h-8 bg-slate-700 rounded w-3/4"></div>
+                            <div class="h-6 bg-slate-700 rounded w-1/2"></div>
+                            <div class="h-6 bg-slate-700 rounded w-2/3"></div>
+                            <div class="aspect-w-4 aspect-h-3 bg-slate-700 rounded-lg"></div>
+                        </div>
+
+                        <!-- Actual Results -->
+                        <div id="analysis-results" class="hidden space-y-4">
+                            <div class="bg-slate-800/50 p-4 rounded-lg border border-white/10">
+                                <div class="text-sm text-slate-400 mb-1">识别动作</div>
+                                <div id="shot-type" class="text-2xl font-bold text-accent-cyan">杀球</div>
+                            </div>
+                            <div class="bg-slate-800/50 p-4 rounded-lg border border-white/10">
+                                <div class="text-sm text-slate-400 mb-1">预估球速</div>
+                                <div id="ball-speed" class="text-2xl font-bold text-white">288 <span class="text-sm font-normal">km/h</span></div>
+                            </div>
+                            <div class="bg-slate-800/50 p-4 rounded-lg border border-white/10">
+                                <div class="text-sm text-slate-400 mb-1">姿态评分</div>
+                                <div id="pose-score" class="text-2xl font-bold text-brand-400">85.7</div>
+                            </div>
+                            <div class="bg-slate-800/50 p-4 rounded-lg border border-white/10">
+                                <div class="text-sm text-slate-400 mb-2">关键帧姿态</div>
+                                <canvas id="key-frame-canvas" class="w-full rounded-md bg-slate-700 aspect-video"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="section-divider max-w-4xl mx-auto"></div>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-400 py-16">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="grid md:grid-cols-4 gap-12 mb-12">
+                <div class="md:col-span-2">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-accent-cyan flex items-center justify-center">
+                            <i class="fas fa-eye text-white text-lg"></i>
+                        </div>
+                        <span class="text-xl font-bold text-white">鹰眼智析</span>
+                    </div>
+                    <p class="text-slate-400 leading-relaxed max-w-md">
+                        基于多模态AI的羽毛球战术分析系统，用科技赋能体育，让每一次挥拍都有数据支撑。
+                    </p>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-semibold mb-4">技术栈</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><i class="fas fa-angle-right text-brand-500 mr-2"></i>YOLOv8</li>
+                        <li><i class="fas fa-angle-right text-brand-500 mr-2"></i>Kalman Filter</li>
+                        <li><i class="fas fa-angle-right text-brand-500 mr-2"></i>OpenCV</li>
+                        <li><i class="fas fa-angle-right text-brand-500 mr-2"></i>BiLSTM</li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-semibold mb-4">联系我们</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><i class="fas fa-envelope text-brand-500 mr-2"></i>3260639347@qq.com</li>
+                        <li><i class="fas fa-map-marker-alt text-brand-500 mr-2"></i>中国 · 河北省 · 石家庄市</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="border-t border-slate-800 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+                <p class="text-sm"> 鹰眼智析团队. 保留所有权利.</p>
+                <div class="flex items-center gap-4">
+                    <a href="#" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-brand-600 hover:text-white transition-all">
+                        <i class="fab fa-github"></i>
+                    </a>
+                    <a href="#" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-brand-600 hover:text-white transition-all">
+                        <i class="fab fa-weixin"></i>
+                    </a>
+                    <a href="#" class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-brand-600 hover:text-white transition-all">
+                        <i class="fab fa-zhihu"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Scroll Reveal Animation
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.scroll-reveal').forEach(el => {
+            observer.observe(el);
+        });
+
+        // Smooth Scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Navbar background on scroll
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('nav');
+            if (window.scrollY > 50) {
+                nav.classList.add('shadow-lg');
+            } else {
+                nav.classList.remove('shadow-lg');
+            }
+        });
+
+        // Counter Animation
+        const counters = document.querySelectorAll('.stat-number');
+        const counterObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const target = entry.target;
+                    const text = target.textContent;
+                    if (text.includes('%')) {
+                        animateValue(target, 0, 95, 2000, '%');
+                    } else if (text.includes('pts') || text.includes('点')) {
+                        animateValue(target, 0, 17, 1500, '');
+                    } else if (text.includes('+')) {
+                        target.textContent = '4+';
+                    }
+                    counterObserver.unobserve(target);
+                }
+            });
+        });
+
+        counters.forEach(counter => counterObserver.observe(counter));
+
+        function animateValue(obj, start, end, duration, suffix) {
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const value = Math.floor(progress * (end - start) + start);
+                obj.innerHTML = value + (suffix || '');
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        // Video Upload and Player Logic
+        const videoUploadContainer = document.getElementById('video-upload-container');
+        const uploadButton = document.getElementById('upload-button');
+        const videoInput = document.getElementById('video-input');
+        const videoPlayerContainer = document.getElementById('video-player-container');
+        const mainVideo = document.getElementById('main-video');
+        const processingOverlay = document.getElementById('processing-overlay');
+        const analysisResultsPlaceholder = document.getElementById('analysis-results-placeholder');
+        const analysisResults = document.getElementById('analysis-results');
+
+        if (uploadButton) {
+            uploadButton.addEventListener('click', () => videoInput.click());
+        }
+        if (videoInput) {
+            videoInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    handleFile(file);
+                }
+            });
+        }
+
+        if (videoUploadContainer) {
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                videoUploadContainer.addEventListener(eventName, preventDefaults, false);
+            });
+        }
+
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        if (videoUploadContainer) {
+            videoUploadContainer.addEventListener('drop', (event) => {
+                const file = event.dataTransfer.files[0];
+                if (file) {
+                    handleFile(file);
+                }
+            }, false);
+        }
+
+
+        function handleFile(file) {
+            videoUploadContainer.classList.add('hidden');
+            videoPlayerContainer.classList.remove('hidden');
+            
+            const videoURL = URL.createObjectURL(file);
+            mainVideo.src = videoURL;
+            mainVideo.play();
+
+            // --- Backend Integration Point ---
+            // 1. Show processing overlay
+            processingOverlay.style.display = 'flex';
+            analysisResultsPlaceholder.classList.remove('hidden');
+            analysisResults.classList.add('hidden');
+
+            // 2. Create a FormData object and append the file
+            const formData = new FormData();
+            formData.append('video', file);
+
+            // 3. Use fetch to send the video to your backend endpoint
+            // Example:
+            /*
+            fetch('/api/analyze', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 4. Hide processing overlay
+                processingOverlay.style.display = 'none';
+
+                // 5. Update the UI with the analysis results from 'data'
+                updateAnalysisResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                processingOverlay.style.display = 'none';
+                alert('分析失败，请稍后重试。');
+            });
+            */
+
+            // For demonstration purposes, we'll just simulate a delay
+            setTimeout(() => {
+                processingOverlay.style.display = 'none';
+                analysisResultsPlaceholder.classList.add('hidden');
+                analysisResults.classList.remove('hidden');
+                // In a real app, you would populate the results with data from the server
+                // updateAnalysisResults(demoData);
+            }, 5000);
+        }
+
+        function updateAnalysisResults(data) {
+            document.getElementById('shot-type').textContent = data.shot_type;
+            document.getElementById('ball-speed').innerHTML = `${data.ball_speed} <span class="text-sm font-normal">km/h</span>`;
+            document.getElementById('pose-score').textContent = data.pose_score;
+            
+            // Logic to draw key frame on canvas
+            const keyFrameCanvas = document.getElementById('key-frame-canvas');
+            const ctx = keyFrameCanvas.getContext('2d');
+            // ... draw image and skeleton on canvas ...
+        }
+    </script>
+</body>
+</html>

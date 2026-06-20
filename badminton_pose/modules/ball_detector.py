@@ -365,8 +365,6 @@ class CentroidTracker:
             return np.array(smooth_pos, dtype=np.float32)
         else:
             # 距离太远 → 可能是新球（如发球），保存旧轨迹后重新注册
-            if best_id in self.trajectory and len(self.trajectory[best_id]) >= 3:
-                self.all_trajectories.append(list(self.trajectory[best_id]))
             self._deregister(best_id)
             self._register(det, frame_num)
             return np.array(det, dtype=np.float32)
@@ -397,9 +395,29 @@ class CentroidTracker:
 
     def _deregister(self, obj_id):
         """注销跟踪目标"""
+        if obj_id in self.trajectory and len(self.trajectory[obj_id]) >= 3:
+            self.all_trajectories.append(list(self.trajectory[obj_id]))
         del self.objects[obj_id]
         del self.kalman_filters[obj_id]
         del self.disappeared[obj_id]
+        if obj_id in self.trajectory:
+            del self.trajectory[obj_id]
+
+    def get_new_completed_trajectories(self, after_id=-1):
+        """
+        获取ID大于after_id的已完成轨迹
+
+        Args:
+            after_id: 上次处理的最大轨迹索引
+
+        Returns:
+            list of (index, trajectory_points)
+        """
+        results = []
+        for i, traj in enumerate(self.all_trajectories):
+            if i > after_id:
+                results.append((i, traj))
+        return results
 
     def get_active_trajectory(self):
         """
