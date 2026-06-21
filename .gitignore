@@ -63,6 +63,8 @@ venv/
 
 # Custom rules for this project
 # Ignore model files, datasets, and other generated outputs
-/badminton_pose/outputs/
+/badminton_pose/outputs/keypoints/
+/badminton_pose/outputs/datasets/
+/badminton_pose/outputs/models/
 *.pth
 *.pt
