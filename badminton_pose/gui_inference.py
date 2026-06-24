@@ -296,14 +296,15 @@ class InferenceWorker(QThread):
             cv2.circle(annotated, (bx, by), 8, (0, 0, 255), -1)
             cv2.circle(annotated, (bx, by), 12, (0, 255, 255), 2)
 
-            # 视频上的像素轨迹线
+            # 视频上的像素轨迹（渐变圆点虚线，借鉴 Good-Badminton）
             traj = self.tracker.get_active_trajectory()
             if len(traj) >= 2:
-                pts = np.array([(int(t[0]), int(t[1])) for t in traj[-30:]], dtype=np.int32)
-                for i in range(1, len(pts)):
-                    alpha = i / len(pts)
-                    color = (0, int(255 * (1 - alpha)), int(255 * alpha))
-                    cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), color, 2)
+                pts = [(int(t[0]), int(t[1])) for t in traj[-30:]]
+                for i, pt in enumerate(pts):
+                    radius = int(3 + (i / len(pts)) * 4)
+                    cv2.circle(annotated, pt, radius, (87, 108, 255), -1, lineType=cv2.LINE_AA)
+                # 最新位置高亮
+                cv2.circle(annotated, pts[-1], 6, (0, 165, 255), -1, lineType=cv2.LINE_AA)
 
         # 球场热力：轨迹结束后，取末端点平均位置作为落点
         if self.manual_corners is not None:
