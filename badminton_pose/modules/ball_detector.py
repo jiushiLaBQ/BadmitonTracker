@@ -31,15 +31,23 @@ class BallDetector:
         self.max_aspect_ratio = 4.0
         # 轨迹历史（用于预测下一帧位置）
         self._pos_history = deque(maxlen=30)
-        # 尝试加载YOLO（可选辅助）
+        # 尝试加载YOLO（优先羽毛球专用模型，备选通用模型）
         self.yolo_model = None
         try:
             from ultralytics import YOLO
-            custom_model = os.path.join(config.MODELS_DIR, "best_ball.pt")
-            if os.path.exists(custom_model):
-                self.yolo_model = YOLO(custom_model)
+            # 优先：羽毛球专用检测模型
+            ball_model = os.path.join(config.MODELS_DIR, config.BALL_MODEL)
+            if not os.path.exists(ball_model):
+                ball_model = os.path.join(config.PROJECT_ROOT, "weights", config.BALL_MODEL)
+            if os.path.exists(ball_model):
+                self.yolo_model = YOLO(ball_model)
             else:
-                self.yolo_model = YOLO(config.BALL_MODEL)
+                # 备用：通用 COCO 模型
+                fallback = os.path.join(config.MODELS_DIR, config.BALL_MODEL_FALLBACK)
+                if os.path.exists(fallback):
+                    self.yolo_model = YOLO(fallback)
+                else:
+                    self.yolo_model = YOLO(config.BALL_MODEL_FALLBACK)
         except Exception:
             pass
 

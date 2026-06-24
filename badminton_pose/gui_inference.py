@@ -51,6 +51,7 @@ class InferenceWorker(QThread):
     footwork_heatmap_ready = pyqtSignal(np.ndarray)
     status_update = pyqtSignal(str)
     report_ready = pyqtSignal(str)
+    heatmap_exported = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -214,6 +215,29 @@ class InferenceWorker(QThread):
                 self.report_ready.emit(report)
         except Exception as e:
             self.status_update.emit(f"报告生成失败: {e}")
+
+        # 同时导出热力图
+        self._export_heatmaps()
+
+    def _export_heatmaps(self):
+        """导出热力图到文件"""
+        try:
+            import os
+            export_dir = os.path.join(os.path.dirname(__file__), "outputs", "heatmap_exports")
+            os.makedirs(export_dir, exist_ok=True)
+
+            ball_img = self.ball_heatmap.generate_heatmap()
+            foot_img = self.footwork_heatmap.generate_heatmap()
+
+            ball_path = os.path.join(export_dir, "ball_heatmap.png")
+            foot_path = os.path.join(export_dir, "footwork_heatmap.png")
+
+            cv2.imwrite(ball_path, ball_img)
+            cv2.imwrite(foot_path, foot_img)
+
+            self.heatmap_exported.emit(export_dir)
+        except Exception as e:
+            self.status_update.emit(f"热力图导出失败: {e}")
 
     def _process_frame(self, frame, frame_count):
         h, w = frame.shape[:2]
@@ -676,6 +700,7 @@ class BadmintonGUI(QMainWindow):
         self.worker.ball_heatmap_ready.connect(self._on_ball_heatmap)
         self.worker.footwork_heatmap_ready.connect(self._on_footwork_heatmap)
         self.worker.report_ready.connect(self._on_report_ready)
+        self.worker.heatmap_exported.connect(self._on_heatmap_exported)
         self.worker.set_source(source, mode)
         # 视频模式：先显示第一帧，等标定完成后再开始推理
         if mode == "video":
@@ -733,6 +758,9 @@ class BadmintonGUI(QMainWindow):
 
     def _on_report_ready(self, report):
         self.report_text.setText(report)
+
+    def _on_heatmap_exported(self, export_dir):
+        self.status_update.emit(f"热力图已导出到: {export_dir}")
 
     def _init_heatmap_displays(self):
         """初始化右侧球场底图"""

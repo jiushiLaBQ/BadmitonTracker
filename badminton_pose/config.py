@@ -187,7 +187,8 @@ COURT_TEMPLATE_PATH = '/home/labq/deeplearning/badminton_pose/court.jpg'
 # ============================================================
 # 羽毛球检测配置
 # ============================================================
-BALL_MODEL = "yolov8n.pt"                      # YOLOv8n 模型
+BALL_MODEL = "yolo11s-ball.pt"                  # 羽毛球专用检测模型（优先）
+BALL_MODEL_FALLBACK = "yolov8n.pt"              # 备用通用模型
 BALL_CONF = 0.15                               # 低阈值检测小目标
 BALL_IMG_SIZE = 640                            # 球检测输入尺寸
 BALL_IOU = 0.45                                # NMS IoU 阈值
