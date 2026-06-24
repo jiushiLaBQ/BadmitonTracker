@@ -16,6 +16,10 @@
 
 这个想法便是鹰眼智析的起点。从关键点提取到动作分类，从球检测到落点热力图，系统逐步成型。如今，它不仅能实时识别 18 种击球动作，还能生成球场热力图和训练建议报告——将原本依赖经验的训练复盘，变成了可量化、可追踪的数据驱动分析。
 
+由于本人技术实在有限，此项目需要修改完善的地方还有很多很多......
+
+🔧 **持续更新中...**
+
 ---
 
 ## 核心功能
@@ -30,7 +34,7 @@
 
 ## 效果展示
 
-![实时推理](screenshots/gui_inference.png)
+![实时推理](badminton_pose/screenshots/gui_inference.png)
 
 *视频 + 骨架叠加 + 球轨迹 + 球场热力图 + 动作识别*
 
@@ -226,10 +230,10 @@ python run.py --step evaluate     # 5. 评估模型
 
 **训练输出：**
 
-- `outputs/models/best_model.pth` — 最佳模型权重
-- `outputs/curves/training_curves.png` — 训练/验证损失与准确率曲线
-- `outputs/curves/confusion_matrix.png` — 混淆矩阵
-- `outputs/curves/per_class_accuracy.png` — 每类准确率柱状图
+- `badminton_pose/outputs/models/best_model.pth` — 最佳模型权重
+- `badminton_pose/outputs/curves/training_curves.png` — 训练/验证损失与准确率曲线
+- `badminton_pose/outputs/curves/confusion_matrix.png` — 混淆矩阵
+- `badminton_pose/outputs/curves/per_class_accuracy.png` — 每类准确率柱状图
 
 ---
 
@@ -269,14 +273,14 @@ python run.py --step evaluate     # 5. 评估模型
 
 ### 训练曲线
 
-![训练曲线](outputs/curves/training_curves.png)
+![训练曲线](badminton_pose/outputs/curves/training_curves.png)
 
 - **损失曲线**：训练损失从 ~1.0 快速收敛至 ~0.02，验证损失稳定在 ~0.35，未出现明显过拟合
 - **准确率曲线**：验证准确率在第 50 epoch 后趋于平稳，最终稳定在 91% 附近
 
 ### 混淆矩阵
 
-![混淆矩阵](outputs/curves/confusion_matrix.png)
+![混淆矩阵](badminton_pose/outputs/curves/confusion_matrix.png)
 
 **分析：**
 - 大部分类别识别率 ≥ 90%，其中 Short Serve（99%）、Lift（99%）、Block（99%）、Push Shot（99%）表现最优
@@ -287,7 +291,7 @@ python run.py --step evaluate     # 5. 评估模型
 
 ### 每类准确率
 
-![每类准确率](outputs/curves/per_class_accuracy.png)
+![每类准确率](badminton_pose/outputs/curves/per_class_accuracy.png)
 
 | 评级 | 类别 | 准确率 |
 |:---:|:---|:---:|
