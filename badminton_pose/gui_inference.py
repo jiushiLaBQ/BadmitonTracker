@@ -52,6 +52,7 @@ class InferenceWorker(QThread):
     status_update = pyqtSignal(str)
     report_ready = pyqtSignal(str)
     heatmap_exported = pyqtSignal(str)
+    loop_finished = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -186,6 +187,7 @@ class InferenceWorker(QThread):
                 if self.mode == "video":
                     # 视频结束，生成建议报告
                     self._generate_report()
+                    self.loop_finished.emit()
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
                 break
@@ -215,9 +217,6 @@ class InferenceWorker(QThread):
                 self.report_ready.emit(report)
         except Exception as e:
             self.status_update.emit(f"报告生成失败: {e}")
-
-        # 同时导出热力图
-        self._export_heatmaps()
 
     def _export_heatmaps(self):
         """导出热力图到文件"""
@@ -545,6 +544,10 @@ class BadmintonGUI(QMainWindow):
         btn_reset = QPushButton("重置热力图")
         btn_reset.clicked.connect(self.reset_heatmaps)
         toolbar.addWidget(btn_reset)
+        self.btn_export = QPushButton("导出热力图")
+        self.btn_export.setEnabled(False)
+        self.btn_export.clicked.connect(self.export_heatmaps)
+        toolbar.addWidget(self.btn_export)
         toolbar.addStretch()
         main_layout.addLayout(toolbar)
 
@@ -701,6 +704,7 @@ class BadmintonGUI(QMainWindow):
         self.worker.footwork_heatmap_ready.connect(self._on_footwork_heatmap)
         self.worker.report_ready.connect(self._on_report_ready)
         self.worker.heatmap_exported.connect(self._on_heatmap_exported)
+        self.worker.loop_finished.connect(self._on_loop_finished)
         self.worker.set_source(source, mode)
         # 视频模式：先显示第一帧，等标定完成后再开始推理
         if mode == "video":
@@ -760,7 +764,16 @@ class BadmintonGUI(QMainWindow):
         self.report_text.setText(report)
 
     def _on_heatmap_exported(self, export_dir):
-        self.status_update.emit(f"热力图已导出到: {export_dir}")
+        self._log(f"热力图已导出到: {export_dir}")
+
+    def _on_loop_finished(self):
+        self.btn_export.setEnabled(True)
+        self._log("视频播放完成，可点击 [导出热力图] 保存")
+
+    def export_heatmaps(self):
+        """手动导出热力图"""
+        if self.worker is not None:
+            self.worker._export_heatmaps()
 
     def _init_heatmap_displays(self):
         """初始化右侧球场底图"""

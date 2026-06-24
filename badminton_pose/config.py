@@ -189,10 +189,10 @@ COURT_TEMPLATE_PATH = '/home/labq/deeplearning/badminton_pose/court.jpg'
 # ============================================================
 BALL_MODEL = "yolo11s-ball.pt"                  # 羽毛球专用检测模型（优先）
 BALL_MODEL_FALLBACK = "yolov8n.pt"              # 备用通用模型
-BALL_CONF = 0.15                               # 低阈值检测小目标
+BALL_CONF = 0.1                                # 低阈值检测小目标
 BALL_IMG_SIZE = 640                            # 球检测输入尺寸
 BALL_IOU = 0.45                                # NMS IoU 阈值
-BALL_MAX_AREA = 300                            # 球最大面积（像素²）
+BALL_MAX_AREA = 500                            # 球最大面积（像素²）
 BALL_TRACK_MAX_DISAPPEARED = 15                # 丢失目标最大保留帧数
 BALL_TRACK_MAX_DISTANCE = 80                   # 关联匹配最大像素距离
 KALMAN_PROCESS_NOISE = 0.03                    # 卡尔曼过程噪声

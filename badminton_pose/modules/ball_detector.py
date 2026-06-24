@@ -98,9 +98,13 @@ class BallDetector:
         best = None
         best_score = -float('inf')
         for cx, cy, raw_score in merged:
+            # 边缘过滤：排除靠近画面边框的误检（留5%边距）
+            margin_x = w * 0.05
+            margin_y = h * 0.05
+            if cx < margin_x or cx > w - margin_x or cy < margin_y or cy > h - margin_y:
+                continue
             # 面积比过滤
-            area_est = 50  # 粗略估计球框面积
-            area_ratio = area_est / frame_area
+            area_ratio = 50 / frame_area
             if area_ratio > self.max_area_ratio:
                 continue
             # 评分：原始得分 × 1000 - 预测距离 × 1.4 - 尺寸惩罚
@@ -288,7 +292,7 @@ class BallDetector:
                 total = roi.shape[0] * roi.shape[1]
                 if bright / (total + 1e-6) < 0.3:
                     continue
-                score = 1.0 / (area + 1)
+                score = 2.5 / (area + 1)
                 candidates.append((cx, cy, score, 'yolo'))
         except Exception:
             pass
