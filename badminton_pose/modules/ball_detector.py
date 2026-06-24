@@ -21,11 +21,16 @@ class BallDetector:
     羽毛球检测器
     混合策略：帧差运动检测(主) + 亮色区域筛选 + YOLO检测(辅助)
     羽毛球特征：小、亮(白/黄)、快速移动
+    借鉴 Good-Badminton：候选评分 + 预测位置门限 + ROI过滤
     """
 
     def __init__(self):
         self.prev_gray = None
         self.max_area = config.BALL_MAX_AREA
+        self.max_area_ratio = 0.004  # 框面积 ≤ 帧面积的0.4%
+        self.max_aspect_ratio = 4.0
+        # 轨迹历史（用于预测下一帧位置）
+        self._pos_history = deque(maxlen=30)
         # 尝试加载YOLO（可选辅助）
         self.yolo_model = None
         try:
@@ -79,9 +84,29 @@ class BallDetector:
         # 去重：合并相近位置的候选
         merged = self._merge_candidates(candidates, dist_thresh=20)
 
-        # 返回得分最高的
-        merged.sort(key=lambda c: c[2], reverse=True)
-        return np.array([merged[0][0], merged[0][1]], dtype=np.float32)
+        # 候选评分：综合原始得分 + 预测位置距离 + 尺寸惩罚（借鉴 Good-Badminton）
+        frame_area = max(1, h * w)
+        predicted = self._predict_next_position()
+        best = None
+        best_score = -float('inf')
+        for cx, cy, raw_score in merged:
+            # 面积比过滤
+            area_est = 50  # 粗略估计球框面积
+            area_ratio = area_est / frame_area
+            if area_ratio > self.max_area_ratio:
+                continue
+            # 评分：原始得分 × 1000 - 预测距离 × 1.4 - 尺寸惩罚
+            dist = np.hypot(cx - predicted[0], cy - predicted[1]) if predicted is not None else 0
+            size_penalty = area_ratio * 4000
+            score = raw_score * 1000 - dist * 1.4 - size_penalty
+            if score > best_score:
+                best_score = score
+                best = (cx, cy)
+
+        if best is not None:
+            self._pos_history.append(best)
+            return np.array(best, dtype=np.float32)
+        return None
 
     def _build_person_mask(self, keypoints, h, w):
         """
@@ -283,6 +308,20 @@ class BallDetector:
 
         return merged
 
+    def _predict_next_position(self):
+        """
+        线性外推预测下一帧球位置（借鉴 Good-Badminton）
+        用最近两帧位置的速度向量做预测
+
+        Returns:
+            tuple (x, y) 或 None
+        """
+        if len(self._pos_history) < 2:
+            return None
+        prev = self._pos_history[-2]
+        last = self._pos_history[-1]
+        return (last[0] + (last[0] - prev[0]), last[1] + (last[1] - prev[1]))
+
 
 class CentroidTracker:
     """
@@ -346,15 +385,21 @@ class CentroidTracker:
             self._register(det, frame_num)
             return np.array(det, dtype=np.float32)
 
-        # 已有目标 → 最近邻匹配
+        # 已有目标 → 最近邻匹配 + 预测门限
         best_id = min(self.objects.keys())
         best_dist = np.linalg.norm(
             np.array(det) - np.array(self.objects[best_id])
         )
 
-        if best_dist < self.max_distance:
+        # 额外检查：用当前状态+速度估计预测位置，检测偏差过大则拒绝
+        kf = self.kalman_filters[best_id]
+        state = kf.statePost
+        pred_x = float(state[0, 0] + state[2, 0])
+        pred_y = float(state[1, 0] + state[3, 0])
+        prediction_error = np.linalg.norm(np.array(det) - np.array([pred_x, pred_y]))
+
+        if best_dist < self.max_distance and prediction_error < self.max_distance * 2:
             # 匹配成功 → 卡尔曼更新
-            kf = self.kalman_filters[best_id]
             measurement = np.array([[np.float32(det[0])], [np.float32(det[1])]])
             kf.correct(measurement)
             prediction = kf.predict()
