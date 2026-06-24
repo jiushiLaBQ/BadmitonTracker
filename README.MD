@@ -32,12 +32,6 @@
 
 ---
 
-## 效果展示
-
-![实时推理](badminton_pose/screenshots/gui_inference.png)
-
-*视频 + 骨架叠加 + 球轨迹 + 球场热力图 + 动作识别*
-
 ---
 
 ## 技术架构
